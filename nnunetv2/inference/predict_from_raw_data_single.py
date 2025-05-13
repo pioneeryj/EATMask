@@ -40,10 +40,9 @@ from metric_evaluation import center_crop, pad_to_target_size, calculate_dice_sc
 
 device=torch.device("cuda")
 
-
 input_dir = "/nas_homes/yoonji/medmask/nnUNet_raw/Dataset606_all_TotalSegmentator/imagesTs"
 checkpoint_dir = "/nas_homes/yoonji/medmask/nnUNet_results/Dataset606_all_TotalSegmentator/STUNetTrainer__nnUNetPlans__3d_fullres"
-model_name = "anatomask_1000epoch"
+model_name = "medmask_0.6_1000epoch"
 label_dir = "/nas_homes/yoonji/medmask/nnUNet_raw/Dataset606_all_TotalSegmentator/labelsTs"
 
 
@@ -625,11 +624,8 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     
-    input_path = args.inp
-    checkpoint_path = args.checkpoint
-    print("### checkpoint_path: ", checkpoint_path)
-    model_name = args.model
-    print("### model_name: ", model_name)
+    print("### checkpoint_path: ", args.checkpoint)
+    print("### model_name: ", args.model)
 
     
     # predict a bunch of files

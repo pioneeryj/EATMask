@@ -7,6 +7,7 @@ import monai
 from monai.metrics import DiceMetric
 from monai.metrics import SurfaceDiceMetric
 from scipy.ndimage import binary_erosion, distance_transform_edt
+from typing import List, Tuple, Union
 '''
 Assume that,,
 prediction_file: ~~.nii.gz
@@ -58,133 +59,7 @@ def pad_to_target_size(image, target_size):
     # F.pad의 pad 순서는 (pad_left_d, pad_right_d, pad_left_w, pad_right_w, pad_left_h, pad_right_h)
     return F.pad(image, (pad_D[0], pad_D[1], pad_W[0], pad_W[1], pad_H[0], pad_H[1]), mode='constant', value=0)
 
-# def calculate_dice_score(predicted: np.ndarray, ground_truth: np.ndarray, num_classes: None, ignore_empty: bool = True, eps: float = 1e-8) -> float:
-#     """
-#     3D segmentation map (H, W, D) numpy 배열에서 Dice 점수를 계산합니다.
-    
-#     Args:
-#         predicted (np.ndarray): 모델 예측 결과로 각 voxel에 정수 레이블이 할당된 배열.
-#         ground_truth (np.ndarray): GT로 각 voxel에 정수 레이블이 할당된 배열.
-#         num_classes (int): 전체 클래스 수(백그라운드 포함). 기본값은 105.
-#         ignore_empty (bool): True인 경우, ground truth 채널이 전부 0인 경우는 Dice 계산에서 배제합니다.
-#         eps (float): 0으로 나누는 문제를 방지하기 위한 작은 값.
-        
-#     Returns:
-#         float: non-empty 채널에 대해 계산된 평균 Dice score.
-#     """
-#     # 예측과 GT를 torch tensor로 변환 (정수형)
-#     if num_classes is None:
-#         num_pred_classes = predicted.max() + 1
-#         num_gt_classes = ground_truth.max() + 1
-#         num_classes_ = int(max(num_pred_classes, num_gt_classes))
-#     else:
-#         num_classes_ = int(num_classes)
-#     pred_tensor = torch.from_numpy(predicted).long()
-#     gt_tensor = torch.from_numpy(ground_truth).long()
-    
-#     # one-hot 인코딩: (H, W, D, num_classes)
-#     pred_onehot = F.one_hot(pred_tensor, num_classes=num_classes_)
-#     gt_onehot = F.one_hot(gt_tensor, num_classes=num_classes_)
-    
-#     # 채널을 가장 앞으로: (num_classes, H, W, D)
-#     pred_onehot = pred_onehot.permute(3, 0, 1, 2).float()
-#     gt_onehot = gt_onehot.permute(3, 0, 1, 2).float()
-    
-#     dice_per_class = []
-    
-#     # 각 채널별로 Dice 계산
-#     for c in range(num_classes_):
-#         p_c = pred_onehot[c]
-#         g_c = gt_onehot[c]
-        
-#         # 교집합: 두 채널 모두 1인 voxel의 합
-#         intersection = torch.sum(p_c * g_c)
-#         # 예측과 GT에서 1인 voxel의 총합
-#         sum_pred = torch.sum(p_c)
-#         sum_gt = torch.sum(g_c)
-        
-#         if sum_gt.item() == 0:
-#             # GT가 완전 비어있는 경우
-#             if ignore_empty:
-#                 continue  # Dice 계산에서 제외
-#             else:
-#                 # 예측도 비어있으면 Dice = 1, 아니면 0
-#                 dice_c = 1.0 if sum_pred.item() == 0 else 0.0
-#         else:
-#             dice_c = (2.0 * intersection + eps) / (sum_pred + sum_gt + eps)
-        
-#         dice_per_class.append(dice_c)
-    
-#     # 만약 전부 skip된 경우
-#     if not dice_per_class:
-#         return float('nan')
-    
-#     mean_dice = sum(dice_per_class) / len(dice_per_class)
-#     return mean_dice.item()
 
-# def calculate_nsd_score(predicted, ground_truth, threshold=1.0, num_classes=None):
-#     if num_classes is None:
-#         num_pred_classes = predicted.max() + 1
-#         num_gt_classes = ground_truth.max() + 1
-#         num_classes_ = int(max(num_pred_classes, num_gt_classes))
-#     else:
-#         num_classes_ = int(num_classes)
-    
-#     nsd = np.empty(num_classes_, dtype=np.float32)
-#     nsd.fill(np.nan)
-    
-#     # 3D 이미지의 연결구조: 모든 이웃 (26-connected)
-#     structure = np.ones((3, 3, 3), dtype=bool)
-    
-#     # 각 클래스별로 NSD 계산
-#     for c in range(num_classes_):
-#         # 클래스 c에 대한 예측 및 GT binary mask 생성
-#         pred_mask = (predicted == c)
-#         gt_mask = (ground_truth == c)
-        
-#         # predicted boundary: 원본 mask에서 binary erosion을 수행한 결과와의 차집합
-#         if np.any(pred_mask):
-#             pred_eroded = binary_erosion(pred_mask, structure=structure, border_value=0)
-#             pred_boundary = pred_mask & (~pred_eroded)
-#         else:
-#             pred_boundary = np.zeros_like(pred_mask, dtype=bool)
-        
-#         # GT boundary
-#         if np.any(gt_mask):
-#             gt_eroded = binary_erosion(gt_mask, structure=structure, border_value=0)
-#             gt_boundary = gt_mask & (~gt_eroded)
-#         else:
-#             gt_boundary = np.zeros_like(gt_mask, dtype=bool)
-        
-#         # 전체 경계 요소 수: predicted boundary와 GT boundary의 총합
-#         total_boundary = np.count_nonzero(pred_boundary) + np.count_nonzero(gt_boundary)
-#         if total_boundary == 0:
-#             # 해당 클래스가 양쪽 segmentation 모두에 존재하지 않는 경우
-#             nsd[c] = np.nan
-#             continue
-        
-#         # GT boundary 쪽의 distance transform: GT boundary가 아닌 영역에 대해 계산 후, predicted boundary 위치의 거리 추출
-#         if np.any(gt_boundary):
-#             dt_gt = distance_transform_edt(~gt_boundary)
-#             distances_pred = dt_gt[pred_boundary]
-#         else:
-#             distances_pred = np.array([])
-        
-#         # predicted boundary 쪽의 distance transform: predicted boundary가 아닌 영역에 대해 계산 후, GT boundary 위치의 거리 추출
-#         if np.any(pred_boundary):
-#             dt_pred = distance_transform_edt(~pred_boundary)
-#             distances_gt = dt_pred[gt_boundary]
-#         else:
-#             distances_gt = np.array([])
-        
-#         # threshold 이하인 요소 수 계산 (여기서는 threshold 값이 1.0로 통일됨)
-#         correct_pred = np.sum(distances_pred <= threshold) if distances_pred.size > 0 else 0
-#         correct_gt   = np.sum(distances_gt <= threshold)   if distances_gt.size > 0 else 0
-        
-#         nsd[c] = (correct_pred + correct_gt) / total_boundary
-#         mean_nsd = np.nanmean(nsd)
-        
-#     return mean_nsd
  
 def calculate_dice_score(predicted, ground_truth):
 
@@ -209,43 +84,142 @@ def calculate_dice_score(predicted, ground_truth):
 #     nsd.aggregate()
 #     mean_nsd = nsd.mean()
 #     return mean_nsd.item()
-
-def calculate_dice_score_manual(predicted, ground_truth):
+def region_or_label_to_mask(segmentation: np.ndarray, region_or_label: Union[int, Tuple[int, ...]]) -> np.ndarray:
     """
-    직접 dice score를 계산하는 함수
+    주어진 segmentation에서 특정 레이블 또는 레이블 그룹에 해당하는 마스크를 생성합니다.
     
     Args:
-        predicted: shape (C, H, W, D)의 one-hot 인코딩된 예측값
-        ground_truth: shape (H, W, D)의 정수 레이블
+        segmentation: 분할 마스크 (h,w,d 차원)
+        region_or_label: 하나의 레이블 인덱스 또는 레이블 인덱스의 튜플
         
     Returns:
-        float: Dice 점수
+        생성된 불리언 마스크
     """
-    # 예측값을 torch tensor로 변환
-    predicted_tensor = torch.from_numpy(predicted).float()
-    gt_tensor = torch.from_numpy(ground_truth).long()
+    if np.isscalar(region_or_label):
+        return segmentation == region_or_label
+    else:
+        mask = np.zeros_like(segmentation, dtype=bool)
+        for r in region_or_label:
+            mask[segmentation == r] = True
+    return mask
+
+def compute_tp_fp_fn_tn(mask_ref: np.ndarray, mask_pred: np.ndarray, ignore_mask: np.ndarray = None):
+    """
+    True Positive, False Positive, False Negative, True Negative를 계산합니다.
     
-    # ground_truth에 있는 unique 클래스 찾기
-    unique_classes = torch.unique(gt_tensor)
-    
-    dice_scores = []
-    eps = 1e-8
-    
-    # 각 클래스별로 dice 계산
-    for c in unique_classes:
-        # 해당 클래스에 대한 예측과 정답 마스크
-        pred_c = (predicted_tensor[c] > 0.5).float().flatten()
-        gt_c = (gt_tensor == c).float().flatten()
+    Args:
+        mask_ref: 참조 마스크
+        mask_pred: 예측 마스크
+        ignore_mask: 무시할 픽셀의 마스크 (선택적)
         
-        intersection = torch.sum(pred_c * gt_c)
-        union = torch.sum(pred_c) + torch.sum(gt_c)
-        
-        if union > 0:
-            dice_c = (2.0 * intersection + eps) / (union + eps)
-            dice_scores.append(dice_c.item())
+    Returns:
+        tp, fp, fn, tn 값
+    """
+    if ignore_mask is None:
+        use_mask = np.ones_like(mask_ref, dtype=bool)
+    else:
+        use_mask = ~ignore_mask
+    tp = np.sum((mask_ref & mask_pred) & use_mask)
+    fp = np.sum(((~mask_ref) & mask_pred) & use_mask)
+    fn = np.sum((mask_ref & (~mask_pred)) & use_mask)
+    tn = np.sum(((~mask_ref) & (~mask_pred)) & use_mask)
+    return tp, fp, fn, tn
+
+def compute_dice_score(label: np.ndarray, prediction: np.ndarray, 
+                      classes: List[int], ignore_label: int = None) -> dict:
+    """
+    3D 의료 영상의 각 클래스에 대한 Dice score를 계산합니다.
     
-    # 평균 dice 계산
-    return np.mean(dice_scores) if dice_scores else 0.0
+    Args:
+        label: 정답 레이블 (h,w,d 차원)
+        prediction: 예측 결과 (h,w,d 차원)
+        classes: 평가할 클래스 인덱스 목록
+        ignore_label: 평가에서 제외할 레이블 (선택적)
+        
+    Returns:
+        각 클래스의 Dice score와 평균 점수를 포함하는 딕셔너리
+    """
+    ignore_mask = label == ignore_label if ignore_label is not None else None
+    
+    results = {}
+    for cls in classes:
+        mask_ref = region_or_label_to_mask(label, cls)
+        mask_pred = region_or_label_to_mask(prediction, cls)
+        
+        tp, fp, fn, tn = compute_tp_fp_fn_tn(mask_ref, mask_pred, ignore_mask)
+        
+        if tp + fp + fn == 0:
+            dice = float('nan')  # 클래스가 존재하지 않는 경우
+        else:
+            dice = 2 * tp / (2 * tp + fp + fn)
+            
+        results[f'class_{cls}'] = {
+            'Dice': float(dice),
+            'TP': int(tp),
+            'FP': int(fp),
+            'FN': int(fn),
+            'TN': int(tn),
+            'n_pred': int(fp + tp),  # 예측에서 해당 클래스의 총 복셀 수
+            'n_ref': int(fn + tp),   # 참조에서 해당 클래스의 총 복셀 수
+        }
+    
+    # 원본 코드처럼 지표 목록을 가져와서 처리
+    metric_list = list(results[f'class_{classes[0]}'].keys())
+    
+    # 각 클래스별 평균 지표 (NaN 값 제외)
+    class_means = {}
+    for cls in classes:
+        class_means[cls] = {}
+        for metric in metric_list:
+            class_means[cls][metric] = results[f'class_{cls}'][metric]
+    
+    # 전경(배경 제외) 클래스에 대한 평균 지표 (NaN 값 제외)
+    foreground_mean = {}
+    for metric in metric_list:
+        values = []
+        for cls in classes:
+            # 배경(클래스 0) 제외하고 전경 클래스만 계산
+            if cls == 0 or str(cls) == '0':
+                continue
+            if not np.isnan(class_means[cls][metric]):  # NaN 값 제외
+                values.append(class_means[cls][metric])
+        # NaN을 제외한 평균 계산
+        foreground_mean[metric] = float(np.mean(values)) if values else float('nan')
+    
+    return {
+        'metrics_per_class': results,
+        'class_means': class_means,
+        'foreground_mean': foreground_mean
+    }
+    
+def calculate_dice_score_manual(label: np.ndarray, prediction: np.ndarray, 
+                            classes: List[int] = None, ignore_label: int = None) -> dict:
+    """
+    3D 의료 영상 분할 모델의 성능을 평가합니다.
+    
+    Args:
+        label: 정답 레이블 (h,w,d 차원)
+        prediction: 예측 결과 (h,w,d 차원)
+        classes: 평가할 클래스 인덱스 목록 (None이면 자동 감지)
+        ignore_label: 평가에서 제외할 레이블 (선택적)
+        
+    Returns:
+        평가 지표를 포함하는 딕셔너리
+    """
+    # 입력 검사
+    assert label.shape == prediction.shape, "Label과 prediction의 차원이 일치해야 합니다."
+    assert len(label.shape) == 3, "입력은 3차원(h,w,d) 배열이어야 합니다."
+    
+    # 클래스를 자동으로 감지
+    if classes is None:
+        classes = np.unique(label)
+        if ignore_label is not None and ignore_label in classes:
+            classes = np.delete(classes, np.where(classes == ignore_label))
+    
+    # Dice score 계산
+    dice_results = compute_dice_score(label, prediction, classes, ignore_label)
+    
+    return dice_results
 
 def evaluate_predictions(pred_dir, label_dir):
     """
