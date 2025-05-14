@@ -4,8 +4,8 @@ import torch.nn.functional as F
 import nibabel as nib
 import numpy as np
 import monai
-from monai.metrics import DiceMetric
-from monai.metrics import SurfaceDiceMetric
+from monai.metrics.meandice import compute_dice
+from monai.metrics.surface_dice import compute_surface_dice
 from scipy.ndimage import binary_erosion, distance_transform_edt
 from typing import List, Tuple, Union
 '''
@@ -61,29 +61,27 @@ def pad_to_target_size(image, target_size):
 
 
  
-def calculate_dice_score(predicted, ground_truth):
+def calculate_dice_score(pred_onehot, lab_onehot, num_classes):
 
     # DiceMetric은 torch.Tensor를 입력으로 받으므로, numpy 배열을 tensor로 변환
-    predicted_tensor = torch.from_numpy(predicted).float()
-    ground_truth_tensor = torch.from_numpy(ground_truth).float()
+    pred_tensor = torch.from_numpy(pred_onehot).unsqueeze(0).float()
+    gt_tensor = torch.from_numpy(lab_onehot).unsqueeze(0).long()
+    dice_class = compute_dice(pred_tensor, gt_tensor,True, True, num_classes)
     
-    predicted_tensor = predicted_tensor.unsqueeze(0)
-    ground_truth_tensor = ground_truth_tensor.unsqueeze(0).unsqueeze(0)
     
-    num_classes = predicted.shape[0]
-    
-    dice_metric = DiceMetric(include_background=True, reduction="mean", ignore_empty=True, num_classes=num_classes)
-    
-    dice_metric(y_pred=predicted_tensor, y=ground_truth_tensor)
-    
-    return dice_metric.aggregate()
+    return torch.nanmean(dice_class)
 
-# def calculate_nsd_score(predicted, ground_truth, threshold=1.0):
-#     nsd = SurfaceDiceMetric(include_background=False, reduction="mean", get_not_nans=False, threshold=threshold)
-#     nsd(y_pred=predicted, y=ground_truth)
-#     nsd.aggregate()
-#     mean_nsd = nsd.mean()
-#     return mean_nsd.item()
+
+
+def calculate_nsd_score(pred_onehot, lab_onehot, num_classes):
+    
+    pred_tensor = torch.from_numpy(pred_onehot).unsqueeze(0).float()
+    gt_tensor = torch.from_numpy(lab_onehot).unsqueeze(0).long()    
+    
+    nsd = compute_surface_dice(pred_tensor, gt_tensor,[1.0]*num_classes)
+
+    return nsd
+
 def region_or_label_to_mask(segmentation: np.ndarray, region_or_label: Union[int, Tuple[int, ...]]) -> np.ndarray:
     """
     주어진 segmentation에서 특정 레이블 또는 레이블 그룹에 해당하는 마스크를 생성합니다.
@@ -192,80 +190,80 @@ def compute_dice_score(label: np.ndarray, prediction: np.ndarray,
         'foreground_mean': foreground_mean
     }
     
-def calculate_dice_score_manual(label: np.ndarray, prediction: np.ndarray, 
-                            classes: List[int] = None, ignore_label: int = None) -> dict:
-    """
-    3D 의료 영상 분할 모델의 성능을 평가합니다.
+# def calculate_dice_score_manual(label: np.ndarray, prediction: np.ndarray, 
+#                             classes: List[int] = None, ignore_label: int = None) -> dict:
+#     """
+#     3D 의료 영상 분할 모델의 성능을 평가합니다.
     
-    Args:
-        label: 정답 레이블 (h,w,d 차원)
-        prediction: 예측 결과 (h,w,d 차원)
-        classes: 평가할 클래스 인덱스 목록 (None이면 자동 감지)
-        ignore_label: 평가에서 제외할 레이블 (선택적)
+#     Args:
+#         label: 정답 레이블 (h,w,d 차원)
+#         prediction: 예측 결과 (h,w,d 차원)
+#         classes: 평가할 클래스 인덱스 목록 (None이면 자동 감지)
+#         ignore_label: 평가에서 제외할 레이블 (선택적)
         
-    Returns:
-        평가 지표를 포함하는 딕셔너리
-    """
-    # 입력 검사
-    assert label.shape == prediction.shape, "Label과 prediction의 차원이 일치해야 합니다."
-    assert len(label.shape) == 3, "입력은 3차원(h,w,d) 배열이어야 합니다."
+#     Returns:
+#         평가 지표를 포함하는 딕셔너리
+#     """
+#     # 입력 검사
+#     assert label.shape == prediction.shape, "Label과 prediction의 차원이 일치해야 합니다."
+#     assert len(label.shape) == 3, "입력은 3차원(h,w,d) 배열이어야 합니다."
     
-    # 클래스를 자동으로 감지
-    if classes is None:
-        classes = np.unique(label)
-        if ignore_label is not None and ignore_label in classes:
-            classes = np.delete(classes, np.where(classes == ignore_label))
+#     # 클래스를 자동으로 감지
+#     if classes is None:
+#         classes = np.unique(label)
+#         if ignore_label is not None and ignore_label in classes:
+#             classes = np.delete(classes, np.where(classes == ignore_label))
     
-    # Dice score 계산
-    dice_results = compute_dice_score(label, prediction, classes, ignore_label)
+#     # Dice score 계산
+#     dice_results = compute_dice_score(label, prediction, classes, ignore_label)
     
-    return dice_results
+#     return dice_results
 
-def evaluate_predictions(pred_dir, label_dir):
-    """
-    예측 폴더(pred_dir)와 정답 폴더(label_dir)의 3D 이미지들을 매칭하여,
-    각 이미지에 대해 Dice 점수를 계산하고 평균 Dice를 반환.
+# def evaluate_predictions(pred_dir, label_dir):
+#     """
+#     예측 폴더(pred_dir)와 정답 폴더(label_dir)의 3D 이미지들을 매칭하여,
+#     각 이미지에 대해 Dice 점수를 계산하고 평균 Dice를 반환.
     
-    - label 이미지에 대해서는 중앙 크롭 및 패딩을 적용하여 target_size (112,112,128)로 맞춤.
-    - 예측 이미지는 이미 (112,112,128) 크기라고 가정.
-    - 파일 매칭은 label 파일 이름에서 ".nii.gz"를 "_0000_pred.nii.gz"로 변경하여 진행.
-    """
-    target_size = (112, 112, 128)
-    label_files = get_file_list(label_dir)
+#     - label 이미지에 대해서는 중앙 크롭 및 패딩을 적용하여 target_size (112,112,128)로 맞춤.
+#     - 예측 이미지는 이미 (112,112,128) 크기라고 가정.
+#     - 파일 매칭은 label 파일 이름에서 ".nii.gz"를 "_0000_pred.nii.gz"로 변경하여 진행.
+#     """
+#     target_size = (112, 112, 128)
+#     label_files = get_file_list(label_dir)
     
-    dice_scores = []
+#     dice_scores = []
     
-    for label_file in label_files:
-        # 예측 파일명: label 파일명에서 ".nii.gz"를 "_0000_pred.nii.gz"로 변경
-        pred_file = label_file.replace(".nii.gz", "_0000_pred.nii.gz")
-        pred_path = os.path.join(pred_dir, pred_file)
-        label_path = os.path.join(label_dir, label_file)
+#     for label_file in label_files:
+#         # 예측 파일명: label 파일명에서 ".nii.gz"를 "_0000_pred.nii.gz"로 변경
+#         pred_file = label_file.replace(".nii.gz", "_0000_pred.nii.gz")
+#         pred_path = os.path.join(pred_dir, pred_file)
+#         label_path = os.path.join(label_dir, label_file)
         
-        # 파일이 존재하는지 체크
-        if not os.path.exists(pred_path):
-            print(f"Warning: {pred_path} not found. Skipping.")
-            continue
+#         # 파일이 존재하는지 체크
+#         if not os.path.exists(pred_path):
+#             print(f"Warning: {pred_path} not found. Skipping.")
+#             continue
         
-        # 불러오기 (numpy array, shape: (H, W, D))
-        pred_img = nib.load(pred_path).get_fdata()
-        gt_img = nib.load(label_path).get_fdata()
+#         # 불러오기 (numpy array, shape: (H, W, D))
+#         pred_img = nib.load(pred_path).get_fdata()
+#         gt_img = nib.load(label_path).get_fdata()
         
-        # 정답(ground truth) 이미지 처리: 중앙 크롭 후 부족한 부분 패딩
-        cropped_gt = center_crop(gt_img, target_size)
-        # pad_to_target_size는 torch.Tensor 입력을 받으므로 변환 후 다시 numpy로 변환
-        padded_gt = pad_to_target_size(torch.from_numpy(cropped_gt), target_size).numpy()
+#         # 정답(ground truth) 이미지 처리: 중앙 크롭 후 부족한 부분 패딩
+#         cropped_gt = center_crop(gt_img, target_size)
+#         # pad_to_target_size는 torch.Tensor 입력을 받으므로 변환 후 다시 numpy로 변환
+#         padded_gt = pad_to_target_size(torch.from_numpy(cropped_gt), target_size).numpy()
         
-        # Dice 점수 계산 (예측 이미지는 이미 target_size라 가정)
-        dice = calculate_dice_score(pred_img, padded_gt)
-        dice_scores.append(dice)
-        print(f"{label_file}: Dice = {dice:.4f}")
+#         # Dice 점수 계산 (예측 이미지는 이미 target_size라 가정)
+#         dice = calculate_dice_score(pred_img, padded_gt)
+#         dice_scores.append(dice)
+#         print(f"{label_file}: Dice = {dice:.4f}")
         
-    if dice_scores:
-        avg_dice = np.nanmean(dice_scores)
-    else:
-        avg_dice = 0.0
-    print(f"Average Dice Score: {avg_dice:.4f}")
-    return avg_dice
+#     if dice_scores:
+#         avg_dice = np.nanmean(dice_scores)
+#     else:
+#         avg_dice = 0.0
+#     print(f"Average Dice Score: {avg_dice:.4f}")
+#     return avg_dice
 
 
 if __name__== '__main__' :

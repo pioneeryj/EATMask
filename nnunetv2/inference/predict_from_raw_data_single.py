@@ -1,6 +1,7 @@
 import inspect
 import sys
-sys.path.insert(0, '/home/yoonji/AnatoMask/nnunetv2')
+sys.path.insert(0, '/home/yoonji/AnatoMask')
+
 from nnunetv2.training.nnUNetTrainer.variants.pretrain.STUNet import STUNet
 import multiprocessing
 import os
@@ -36,7 +37,7 @@ from nnunetv2.utilities.label_handling.label_handling import determine_num_input
 from nnunetv2.utilities.plans_handling.plans_handler import PlansManager, ConfigurationManager
 from nnunetv2.utilities.utils import create_lists_from_splitted_dataset_folder
 import argparse
-from metric_evaluation import center_crop, pad_to_target_size, calculate_dice_score_manual, calculate_dice_score #calculate_nsd_score
+from metric_evaluation import center_crop, pad_to_target_size, calculate_dice_score #calculate_nsd_score
 
 device=torch.device("cuda")
 
@@ -661,17 +662,29 @@ if __name__ == '__main__':
         seg, prob = predictor.predict_single_npy_array(img, props, None, None, True)
         
         # make one-hot for prediction (prob)
-        class_indices = np.argmax(prob, axis=0) # (h,w,d)
-        pred_one_hot = np.eye(prob.shape[0], dtype=np.float32)[class_indices].transpose(3,0,1,2)
-
-        dice_score = calculate_dice_score(pred_one_hot, label_)
+        class_indices = np.argmax(prob, axis=0) # (h,w,d), value = 0~num_classes allocated
+        pred_one_hot = np.zeros_like(prob)
+        for i in range(args.num_classes):
+            pred_one_hot[i] = (class_indices == i)
+        
+        lab_one_hot = np.zeros_like(prob)
+        for i in range(args.num_classes):
+            lab_one_hot[i] = (label_ == i)
+            
+        dice_score = calculate_dice_score(pred_one_hot, lab_one_hot, args.num_classes)
+        nsd_score = calculate_nsd_score(pred_one_hot, lab_one_hot, args.num_classes)
         idx+=1
         print(idx,"dice score: ",dice_score)
+        print(" | ", "nsd score: ",nsd_score)
 
         dice_scores.append(dice_score)
+        nsd_scores.append(nsd_score)
 
     avg_dice = np.mean(dice_scores)
+    avg_nsd = np.mean(nsd_scores)
+    
     print(f"\n{model_name}")
     print(f"\n Number of Files: {len(file_path)}")
     print(f"\n🔥 Average Dice Score: {avg_dice:.4f}")
+    print(f"\n🔥 Average NSD Score: {avg_nsd:.4f}")
 
