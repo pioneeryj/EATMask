@@ -63,15 +63,9 @@ from torch.cuda import device_count
 from torch.cuda.amp import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-# model_name = "spark"
-# model_name = "anatomask"
-model_name = "medmask_0.8"
-
-result_path = model_name+"_1000epoch"
-# result_path = "anatomask_1000epoch"
 
 class nnUNetTrainer(object):
-    def __init__(self, plans: dict, configuration: str, fold: int, dataset_json: dict, unpack_dataset: bool = True,
+    def __init__(self, plans: dict, configuration: str, fold: int, dataset_json: dict, unpack_dataset: bool = True, dataset_name: str='Dataset606_all_TotalSegmentator', result_folder: str='',
                  device: torch.device = torch.device('cuda')):
         # From https://grugbrain.dev/. Worth a read ya big brains ;-)
 
@@ -125,10 +119,12 @@ class nnUNetTrainer(object):
         # inference and some of the folders may not be defined!
         self.preprocessed_dataset_folder_base = join(nnUNet_preprocessed, self.plans_manager.dataset_name) \
             if nnUNet_preprocessed is not None else None
-        self.output_folder_base = join(nnUNet_results, self.plans_manager.dataset_name,
+        self.dataset_name = dataset_name
+        self.result_folder = result_folder
+        self.output_folder_base = join(nnUNet_results, self.dataset_name, #
                                        self.__class__.__name__ + '__' + self.plans_manager.plans_name + "__" + configuration) \
             if nnUNet_results is not None else None
-        self.output_folder = join(self.output_folder_base, result_path)
+        self.output_folder = join(self.output_folder_base, self.result_folder) #
 
         self.preprocessed_dataset_folder = join(self.preprocessed_dataset_folder_base,
                                                 self.configuration_manager.data_identifier)
@@ -841,12 +837,12 @@ class nnUNetTrainer(object):
         # dirty hack because on_epoch_end increments the epoch counter and this is executed afterwards.
         # This will lead to the wrong current epoch to be stored
         self.current_epoch -= 1
-        self.save_checkpoint(join(self.output_folder, model_name+"checkpoint_final.pth"))
+        self.save_checkpoint(join(self.output_folder, "checkpoint_final.pth"))
         self.current_epoch += 1
 
         # now we can delete latest
-        if self.local_rank == 0 and isfile(join(self.output_folder, model_name+"checkpoint_latest.pth")):
-            os.remove(join(self.output_folder, model_name+"checkpoint_latest.pth"))
+        if self.local_rank == 0 and isfile(join(self.output_folder,"checkpoint_latest.pth")):
+            os.remove(join(self.output_folder,"checkpoint_latest.pth"))
 
         # shut down dataloaders
         old_stdout = sys.stdout
@@ -1043,16 +1039,21 @@ class nnUNetTrainer(object):
         self.print_to_log_file(
             f"Epoch time: {np.round(self.logger.my_fantastic_logging['epoch_end_timestamps'][-1] - self.logger.my_fantastic_logging['epoch_start_timestamps'][-1], decimals=2)} s")
 
+        if current_epoch >= 500 and (current_epoch + 1) % 100 == 0 and current_epoch < 1000:
+            self.print_to_log_file(f"Saving checkpoint at epoch {current_epoch}")
+            checkpoint_name = f"checkpoint_epoch_{current_epoch+1}.pth"
+            self.save_checkpoint(join(self.output_folder, checkpoint_name))
+        
         # handling periodic checkpointing
         current_epoch = self.current_epoch
         if (current_epoch + 1) % self.save_every == 0 and current_epoch != (self.num_epochs - 1):
-            self.save_checkpoint(join(self.output_folder, model_name+'_checkpoint_latest.pth'))
+            self.save_checkpoint(join(self.output_folder, 'checkpoint_latest.pth'))
 
         # handle 'best' checkpointing. ema_fg_dice is computed by the logger and can be accessed like this
         if self._best_ema is None or self.logger.my_fantastic_logging['ema_fg_dice'][-1] > self._best_ema:
             self._best_ema = self.logger.my_fantastic_logging['ema_fg_dice'][-1]
             self.print_to_log_file(f"Yayy! New best EMA pseudo Dice: {np.round(self._best_ema, decimals=4)}")
-            self.save_checkpoint(join(self.output_folder, model_name+'_checkpoint_best.pth'))
+            self.save_checkpoint(join(self.output_folder, 'checkpoint_best.pth'))
 
         if self.local_rank == 0:
             self.logger.plot_progress_png(self.output_folder)
@@ -1099,7 +1100,7 @@ class nnUNetTrainer(object):
         # if state dict comes from nn.DataParallel but we use non-parallel model here then the state dict keys do not
         # match. Use heuristic to make it match
         # print(checkpoint['network_weights'])
-        return 
+
         new_state_dict = {}
         for k, value in checkpoint['network_weights'].items():
             key = k

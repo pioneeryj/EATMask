@@ -15,19 +15,29 @@ export nnUNet_preprocessed="/nas_homes/yoonji/medmask/nnUNet_preprocessed"
 export nnUNet_results="/nas_homes/yoonji/medmask/nnUNet_results"
 #####################################################################
 
-# total segmentator
-# spark
-export CUDA_VISIBLE_DEVICES=0
-python nnunetv2/run/run_finetuning_STUNet.py Dataset606_all_TotalSegmentator 3d_fullres 0 \
--tr STUNetTrainer \
--device cuda \
---c \
 
+export CUDA_VISIBLE_DEVICES=1
 
-# amos
-# export CUDA_VISIBLE_DEVICES=1 
-# python nnunetv2/run/run_finetuning_STUNet.py Dataset219_AMOS2022_postChallenge_task2 3d_fullres 0 \
-# -pretrained_weights Anatomask_results/Dataset601_Total/Pretraining/0224/anatomask/anatomask_checkpoint_epoch_1000.pt \
-# -tr STUNetTrainer \
-# -device cuda \
+# 방법 1: pretrained_weights 없이 실행
+python nnunetv2/run/run_finetuning_STUNet.py \
+    Dataset606_all_TotalSegmentator \
+    3d_fullres \
+    0 \
+    -tr STUNetTrainer \
+    -device cuda \
+    -num_gpus 1 \
+    --c \
+    --dataset_name Dataset606_all_TotalSegmentator \
+    --result_folder medmask_0.6_1000epoch_0514
 
+# 방법 2: pretrained_weights와 함께 실행하려면 아래 주석을 해제하고 위 코드는 주석 처리
+# python nnunetv2/run/run_finetuning_STUNet.py \
+#     Dataset606_all_TotalSegmentator \
+#     3d_fullres \
+#     0 \
+#     -pretrained_weights "/nas_homes/yoonji/medmask/nnUNet_results/pretraining/medmask/0.7/medmask_checkpoint_epoch_1000.pt" \
+#     -tr STUNetTrainer \
+#     -device cuda \
+#     --c \
+#     --dataset_name Dataset606_all_TotalSegmentator \
+#     --result_folder medmask_0.6_1000epoch_0514

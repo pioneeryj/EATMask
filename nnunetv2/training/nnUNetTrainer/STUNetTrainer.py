@@ -14,10 +14,10 @@ from torch.utils.checkpoint import checkpoint
 
 
 class STUNetTrainer(nnUNetTrainer):
-    def __init__(self, plans: dict, configuration: str, fold: int, dataset_json: dict, unpack_dataset: bool = True,
-                 device: torch.device = torch.device('cuda')):
+    def __init__(self, plans: dict, configuration: str, fold: int, dataset_json: dict,
+                 unpack_dataset: bool = True, result_folder:str = '', dataset_name:str = 'anatomask', device: torch.device = torch.device('cuda')):
 
-        super().__init__(plans, configuration, fold, dataset_json, unpack_dataset, device)
+        super().__init__(plans, configuration, fold, dataset_json, unpack_dataset, result_folder, dataset_name, device)
         self.num_epochs = 1000
         self.initial_lr = 1e-4
         self.momentum = 0.9599
@@ -25,7 +25,6 @@ class STUNetTrainer(nnUNetTrainer):
         # self.device = torch.device('cuda')
         self.weight_decay = 1e-5
 
-        # Define your models here:
 
     @staticmethod
     def build_network_architecture(plans_manager,

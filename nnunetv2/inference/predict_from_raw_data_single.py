@@ -37,14 +37,9 @@ from nnunetv2.utilities.label_handling.label_handling import determine_num_input
 from nnunetv2.utilities.plans_handling.plans_handler import PlansManager, ConfigurationManager
 from nnunetv2.utilities.utils import create_lists_from_splitted_dataset_folder
 import argparse
-from metric_evaluation import center_crop, pad_to_target_size, calculate_dice_score #calculate_nsd_score
+from metric_evaluation import center_crop, pad_to_target_size, calculate_dice_score, calculate_nsd_score
 
 device=torch.device("cuda")
-
-input_dir = "/nas_homes/yoonji/medmask/nnUNet_raw/Dataset606_all_TotalSegmentator/imagesTs"
-checkpoint_dir = "/nas_homes/yoonji/medmask/nnUNet_results/Dataset606_all_TotalSegmentator/STUNetTrainer__nnUNetPlans__3d_fullres"
-model_name = "medmask_0.6_1000epoch"
-label_dir = "/nas_homes/yoonji/medmask/nnUNet_raw/Dataset606_all_TotalSegmentator/labelsTs"
 
 
 class nnUNetPredictor(object):
@@ -617,11 +612,11 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="for path")
     
-    parser.add_argument('--inp', default=input_dir, help='Input directory with test images')
-    parser.add_argument('--checkpoint', default=checkpoint_dir, help='Directory with checkpoint')
-    parser.add_argument('--model', default=model_name, help='Model name')
-    parser.add_argument('--inp_label', default=label_dir, help='Directory with ground truth labels')
-    parser.add_argument('--num_classes', type=int, default=105, help='Number of classes in the dataset (default: 105)')
+    parser.add_argument('--inp', help='Input directory with test images')
+    parser.add_argument('--checkpoint', help='Directory with checkpoint')
+    parser.add_argument('--model', help='Model name')
+    parser.add_argument('--inp_label', help='Directory with ground truth labels')
+    parser.add_argument('--num_classes', type=int, help='Number of classes in the dataset (default: 105)')
     
     args = parser.parse_args()
     
@@ -651,9 +646,31 @@ if __name__ == '__main__':
 
     # predict a single numpy array
     from nnunetv2.imageio.simpleitk_reader_writer import SimpleITKIO
+    import os
+    from datetime import datetime
     dice_scores = []
     nsd_scores =[]
     file_path = [file for file in os.listdir(args.inp)]
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_filename = f"evaluation_results_{args.model}_{timestamp}.txt"
+    log_path = join(args.checkpoint,args.model, log_filename)
+    
+    with open(log_path, 'w') as log_file:
+        log_file.write("=" * 80 + "\n")
+        log_file.write(f"Evaluation Results - {args.model}\n")
+        log_file.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        log_file.write(f"Total Files: {len(file_path)}\n")
+        log_file.write(f"Number of Classes: {args.num_classes}\n")
+        log_file.write("=" * 80 + "\n\n")
+        log_file.write(f"{'Index':<6}{'Filename':<30}{'Dice Score':<12}{'NSD Score':<12}\n")
+        log_file.write("-" * 80 + "\n")
+
+    print(f"📝 Logging results to: {log_path}")
+    
+    
+    
+    
     idx=0
     for file in file_path:
         img, props = SimpleITKIO().read_images([join(args.inp, file)])
@@ -674,17 +691,38 @@ if __name__ == '__main__':
         dice_score = calculate_dice_score(pred_one_hot, lab_one_hot, args.num_classes)
         nsd_score = calculate_nsd_score(pred_one_hot, lab_one_hot, args.num_classes)
         idx+=1
-        print(idx,"dice score: ",dice_score)
-        print(" | ", "nsd score: ",nsd_score)
+        
+        print(idx,": dice score: ",dice_score)
+        print(idx,": nsd score: ",nsd_score)
+        
+        with open(log_path, 'a') as log_file:
+            log_file.write(f"{idx:<6}{file:<30}{dice_score:<12.4f}{nsd_score:<12.4f}\n")
 
         dice_scores.append(dice_score)
         nsd_scores.append(nsd_score)
 
     avg_dice = np.mean(dice_scores)
     avg_nsd = np.mean(nsd_scores)
+    std_dice = np.std(dice_scores)
+    std_nsd = np.std(nsd_scores)
     
-    print(f"\n{model_name}")
+    print(f"\n{args.model}")
     print(f"\n Number of Files: {len(file_path)}")
     print(f"\n🔥 Average Dice Score: {avg_dice:.4f}")
     print(f"\n🔥 Average NSD Score: {avg_nsd:.4f}")
+    
+    with open(log_path, 'a') as log_file:
+        log_file.write("\n" + "=" * 80 + "\n")
+        log_file.write("FINAL STATISTICS\n")
+        log_file.write("=" * 80 + "\n")
+        log_file.write(f"Model: {args.model}\n")
+        log_file.write(f"Total Files Processed: {len(file_path)}\n")
+        log_file.write(f"Average Dice Score: {avg_dice:.4f} ± {std_dice:.4f}\n")
+        log_file.write(f"Average NSD Score: {avg_nsd:.4f} ± {std_nsd:.4f}\n")
+        log_file.write(f"Best Dice Score: {max(dice_scores):.4f}\n")
+        log_file.write(f"Worst Dice Score: {min(dice_scores):.4f}\n")
+        log_file.write(f"Best NSD Score: {max(nsd_scores):.4f}\n")
+        log_file.write(f"Worst NSD Score: {min(nsd_scores):.4f}\n")
+        log_file.write(f"\nEvaluation completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
 
+    print(f"\n✅ Results saved to: {log_path}")

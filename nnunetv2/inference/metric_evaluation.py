@@ -78,9 +78,9 @@ def calculate_nsd_score(pred_onehot, lab_onehot, num_classes):
     pred_tensor = torch.from_numpy(pred_onehot).unsqueeze(0).float()
     gt_tensor = torch.from_numpy(lab_onehot).unsqueeze(0).long()    
     
-    nsd = compute_surface_dice(pred_tensor, gt_tensor,[1.0]*num_classes)
+    nsd = compute_surface_dice(pred_tensor, gt_tensor,[1.0]*(num_classes-1))
 
-    return nsd
+    return torch.nanmean(nsd)
 
 def region_or_label_to_mask(segmentation: np.ndarray, region_or_label: Union[int, Tuple[int, ...]]) -> np.ndarray:
     """
@@ -266,5 +266,3 @@ def compute_dice_score(label: np.ndarray, prediction: np.ndarray,
 #     return avg_dice
 
 
-if __name__== '__main__' :
-      evaluate_predictions(pred_dir, label_dir)

@@ -1,6 +1,6 @@
 ##
 from nnunetv2.training.nnUNetTrainer.UniRepLKTrainer import UniRepLKUNet
-# from STUNet import STUNet
+from STUNet import STUNet
 import matplotlib.pyplot as plt
 import multiprocessing
 import warnings

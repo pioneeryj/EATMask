@@ -5,6 +5,8 @@ import torch
 import torch.nn as nn
 from timm.layers import trunc_normal_
 import math
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import encoder3D
 from decoder3D import LightDecoder
 import torch.nn.functional as F
