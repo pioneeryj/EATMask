@@ -23,10 +23,6 @@ from torch.backends import cudnn
 
 # 이어서 돌리기 체크포인트 (latest.pth)
 
-model_name = "medmask_0.6"
-checkpoint_file = "/nas_homes/yoonji/medmask/nnUNet_results/Dataset606_all_TotalSegmentator/STUNetTrainer__nnUNetPlans__3d_fullres/checkpoint_latest.pth"
-
-
 def find_free_network_port() -> int:
     """Finds a free port on localhost.
 
@@ -84,14 +80,16 @@ def get_trainer_from_args(dataset_name_or_id: Union[int, str],
 def maybe_load_checkpoint(nnunet_trainer: STUNetTrainer, continue_training: bool, validation_only: bool,
                           pretrained_weights_file: str = None, dataset_name:str = None, result_folder:str = None):
     if "606" in dataset_name:
-        folder_base = "/nas_homes/yoonji/medmask/nnUNet_results/Dataset606_all_TotalSegmentator/STUNetTrainer__nnUNetPlans__3d_fullres"
+        folder_base = "/mnt/HDD/yoonji/medmim/nnUNet_results/Dataset606_all_TotalSegmentator/STUNetTrainer__nnUNetPlans__3d_fullres"
+    elif "219" in dataset_name:
+        folder_base = "/mnt/HDD/yoonji/medmim/nnUNet_results/Dataset219_AMOS2022_postChallenge_task2/STUNetTrainer__nnUNetPlans__3d_fullres"
     else:
-        folder_base = "/nas_homes/yoonji/medmask/nnUNet_results/Dataset219_AMOS2022_postChallenge_task2/STUNetTrainer__nnUNetPlans__3d_fullres"
+        folder_base = "/mnt/HDD/yoonji/medmim/nnUNet_results/Dataset309_FLARE22/STUNetTrainer__nnUNetPlans__3d_fullres"
     if continue_training and pretrained_weights_file is not None:
         raise RuntimeError('Cannot both continue a training AND load pretrained weights. Pretrained weights can only '
                            'be used at the beginning of the training.')
     if continue_training:
-        expected_checkpoint_file = join(folder_base, result_folder, 'checkpoint_latest.pth')
+        expected_checkpoint_file = join(folder_base, result_folder, 'checkpoint_epoch_200.pth')
 
         # expected_checkpoint_file = join(nnunet_trainer.output_folder, 'no_file.pth')
         if not isfile(expected_checkpoint_file):
@@ -284,8 +282,8 @@ def run_training_entry():
                     help="Use this to set the device the training should run with. Available options are 'cuda' "
                          "(GPU), 'cpu' (CPU) and 'mps' (Apple M1/M2). Do NOT use this to set which GPU ID! "
                          "Use CUDA_VISIBLE_DEVICES=X nnUNetv2_train [...] instead!")
-    parser.add_argument('--dataset_name', type=str, required=False)
-    parser.add_argument('--result_folder',type=str)
+    parser.add_argument('--dataset_name', type=str, required=False, default='')
+    parser.add_argument('--result_folder',type=str, required=False, default='')
     args = parser.parse_args()
 
     assert args.device in ['cpu', 'cuda', 'mps'], f'-device must be either cpu, mps or cuda. Other devices are not tested/supported. Got: {args.device}.'
@@ -304,7 +302,7 @@ def run_training_entry():
 
     run_training(args.dataset_name_or_id, args.configuration, args.fold, args.tr, args.p, args.pretrained_weights,
                  args.num_gpus, args.use_compressed, args.npz, args.c, args.val, args.disable_checkpointing, args.val_best,
-                 args.dataset_name, args.result_folder, device=device)
+                 args.dataset_name, args.result_folder, device)
 
 
 if __name__ == '__main__':

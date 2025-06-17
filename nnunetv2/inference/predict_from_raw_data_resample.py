@@ -9,13 +9,15 @@ import traceback
 from copy import deepcopy
 from time import sleep
 from typing import Tuple, Union, List, Optional
-import gc
+
 import numpy as np
 import torch
 from acvl_utils.cropping_and_padding.padding import pad_nd_image
 from batchgenerators.dataloading.multi_threaded_augmenter import MultiThreadedAugmenter
 from batchgenerators.utilities.file_and_folder_operations import load_json, join, isfile, maybe_mkdir_p, isdir, subdirs, \
     save_json
+
+from scipy import ndimage
 from torch import nn
 from torch._dynamo import OptimizedModule
 from torch.nn.parallel import DistributedDataParallel
@@ -76,7 +78,7 @@ class nnUNetPredictor(object):
                                              model_name:str,
                                              # checkpoint_name: str = 'checkpoint_best.pth',
                                              checkpoint_name: str = 'checkpoint_best.pth',
-                                             num_classes: int = 14):
+                                             num_classes: int = 105):
         """
         This is used when making predictions with a trained model
         
@@ -608,6 +610,43 @@ class nnUNetPredictor(object):
         empty_cache(self.device)
         return predicted_logits[tuple([slice(None), *slicer_revert_padding[1:]])]
 
+def center_crop(image, target_size):
+    """
+    중앙 크롭 (image: (H, W, D), target_size: (112, 112, 128))
+    """
+    H, W, D = image.shape
+    crop_H, crop_W, crop_D = target_size
+
+    # 중앙 기준 크롭 시작 위치 계산
+    start_H = max((H - crop_H) // 2, 0)
+    start_W = max((W - crop_W) // 2, 0)
+    start_D = max((D - crop_D) // 2, 0)
+  
+    # 크롭 종료 위치 계산
+    end_H = min(start_H + crop_H, H)
+    end_W = min(start_W + crop_W, W)
+    end_D = min(start_D + crop_D, D)
+
+    return image[start_H:end_H, start_W:end_W, start_D:end_D]
+
+def pad_to_target_size(image, target_size):
+    """
+    부족한 크기를 패딩 (image: (h, w, d), target_size: (112, 112, 128))
+    """
+    h, w, d = image.shape
+    pad_h = max(target_size[0] - h, 0)
+    pad_w = max(target_size[1] - w, 0)
+    pad_d = max(target_size[2] - d, 0)
+
+    # 앞뒤 균등하게 패딩 분배
+    pad_H = (pad_h // 2, pad_h - pad_h // 2)
+    pad_W = (pad_w // 2, pad_w - pad_w // 2)
+    pad_D = (pad_d // 2, pad_d - pad_d // 2)
+
+    # F.pad의 pad 순서는 (pad_left_d, pad_right_d, pad_left_w, pad_right_w, pad_left_h, pad_right_h)
+    return F.pad(image, (pad_D[0], pad_D[1], pad_W[0], pad_W[1], pad_H[0], pad_H[1]), mode='constant', value=0)
+
+
 
 if __name__ == '__main__':
 
@@ -616,13 +655,13 @@ if __name__ == '__main__':
     parser.add_argument('--inp', help='Input directory with test images')
     parser.add_argument('--checkpoint', help='Directory with checkpoint')
     parser.add_argument('--model', help='Model name')
-    parser.add_argument('--pth', help='pth name')
     parser.add_argument('--inp_label', help='Directory with ground truth labels')
     parser.add_argument('--num_classes', type=int, help='Number of classes in the dataset (default: 105)')
     
     args = parser.parse_args()
     
-    print("### checkpoint_path: ", args.checkpoint, args.model, args.pth)
+    print("### checkpoint_path: ", args.checkpoint)
+    print("### model_name: ", args.model)
 
     
     # predict a bunch of files
@@ -641,7 +680,7 @@ if __name__ == '__main__':
     predictor.initialize_from_trained_STUNet(
         model_training_output_dir = args.checkpoint,
         model_name = args.model,
-        checkpoint_name=args.pth,
+        checkpoint_name='checkpoint_best.pth',
         num_classes = args.num_classes
     )
 
@@ -655,9 +694,8 @@ if __name__ == '__main__':
     
     # logging
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = f"evaluation_{args.model}_{args.pth}.txt"
-    # log_path = join(args.checkpoint,args.model, log_filename)
-    log_path = join(args.checkpoint, args.model, log_filename)
+    log_filename = f"evaluation_results_{args.model}_{timestamp}.txt"
+    log_path = join(args.checkpoint,args.model, log_filename)
     
     with open(log_path, 'w') as log_file:
         log_file.write("=" * 80 + "\n")
@@ -678,39 +716,38 @@ if __name__ == '__main__':
         label, props = SimpleITKIO().read_images([join(args.inp_label, file.replace("_0000",""))])
         label_ = label.squeeze(0) # (112,112,128)
         #props = {'spacing': [1.0, 1.0, 1.0]}
+        
+        
         seg, prob = predictor.predict_single_npy_array(img, props, None, None, True)
+        
         
         # to torch
         prob = torch.from_numpy(prob).float()
         label_ = torch.from_numpy(label_).long()
         del img, props, label, seg
         
-        
         class_indices = torch.argmax(prob, dim=0) 
-        del prob
         pred_one_hot = F.one_hot(class_indices, num_classes=args.num_classes) 
         pred_one_hot = pred_one_hot.permute(-1, 0, 1, 2)  # (C, H, W, D)로 변환
-        del class_indices
+        del prob, class_indices
         
         dice_score = calculate_dice_score(pred_one_hot, label_, args.num_classes)
         nsd_score = calculate_nsd_score(pred_one_hot, label_, args.num_classes)
         idx+=1
         
-        del pred_one_hot
-        
         print(idx,": dice score: ",dice_score)
         print(idx,": nsd score: ",nsd_score)
         
         with open(log_path, 'a') as log_file:
+            log_file.write(f"{file}\n")
             log_file.write(f"{idx:<6}{file:<30}{dice_score:<12.4f}{nsd_score:<12.4f}\n")
+            
 
         dice_scores.append(dice_score)
         nsd_scores.append(nsd_score)
         
-        gc.collect()
-        torch.cuda.empty_cache()
-        
-        del dice_score, nsd_score
+
+        del dice_score, nsd_score, pred_one_hot
         
 
     avg_dice = np.mean(dice_scores)

@@ -145,7 +145,7 @@ class nnUNetTrainer(object):
         self.oversample_foreground_percent = 0.33
         self.num_iterations_per_epoch = 250
         self.num_val_iterations_per_epoch = 50
-        self.num_epochs = 500
+        self.num_epochs = 701
         self.current_epoch = 0
 
         ### Dealing with labels/regions
@@ -616,7 +616,7 @@ class nnUNetTrainer(object):
 
         dl_tr, dl_val = self.get_plain_dataloaders(initial_patch_size, dim)
 
-        allowed_num_processes = get_allowed_n_proc_DA()
+        allowed_num_processes = min(get_allowed_n_proc_DA(), 4)
         if allowed_num_processes == 0:
             mt_gen_train = SingleThreadedAugmenter(dl_tr, tr_transforms)
             mt_gen_val = SingleThreadedAugmenter(dl_val, val_transforms)
@@ -807,7 +807,7 @@ class nnUNetTrainer(object):
         if self.unpack_dataset and self.local_rank == 0:
             self.print_to_log_file('unpacking dataset...')
             unpack_dataset(self.preprocessed_dataset_folder, unpack_segmentation=True, overwrite_existing=False,
-                           num_processes=max(1, round(get_allowed_n_proc_DA() // 2)))
+                           num_processes=max(1, round(get_allowed_n_proc_DA() // 4)))
             self.print_to_log_file('unpacking done...')
 
         if self.is_ddp:
@@ -1039,13 +1039,14 @@ class nnUNetTrainer(object):
         self.print_to_log_file(
             f"Epoch time: {np.round(self.logger.my_fantastic_logging['epoch_end_timestamps'][-1] - self.logger.my_fantastic_logging['epoch_start_timestamps'][-1], decimals=2)} s")
 
-        if current_epoch >= 500 and (current_epoch + 1) % 100 == 0 and current_epoch < 1000:
+        current_epoch = self.current_epoch
+        if current_epoch + 1 in [300, 400, 500, 600, 700]:
             self.print_to_log_file(f"Saving checkpoint at epoch {current_epoch}")
             checkpoint_name = f"checkpoint_epoch_{current_epoch+1}.pth"
             self.save_checkpoint(join(self.output_folder, checkpoint_name))
         
         # handling periodic checkpointing
-        current_epoch = self.current_epoch
+        
         if (current_epoch + 1) % self.save_every == 0 and current_epoch != (self.num_epochs - 1):
             self.save_checkpoint(join(self.output_folder, 'checkpoint_latest.pth'))
 

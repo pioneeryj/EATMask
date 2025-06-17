@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-
+import torch.nn.functional as F
 
 class Decoder_forward(nn.Module):
     def __init__(self, dims, num_classes, pool_op_kernel_sizes, conv_kernel_sizes, depth):
@@ -121,6 +121,14 @@ class STUNet(nn.Module):
 
         for u in range(len(self.conv_blocks_localization)):
             x = self.upsample_layers[u](x)
+            
+            if x.shape[2:] != skips[-(u + 1)].shape[2:]:
+                x = F.interpolate(
+                    x, 
+                    size=skips[-(u + 1)].shape[2:],  # skip의 공간 차원에 맞춤
+                    mode='trilinear', 
+                    align_corners=False
+                )
             x = torch.cat((x, skips[-(u + 1)]), dim=1)
             x = self.conv_blocks_localization[u](x)
             seg_outputs.append(self.final_nonlin(self.seg_outputs[u](x)))

@@ -9,8 +9,11 @@ import traceback
 from copy import deepcopy
 from time import sleep
 from typing import Tuple, Union, List, Optional
-import gc
+
+import matplotlib.pyplot as plt
 import numpy as np
+import matplotlib.colors as mcolors
+from matplotlib.patches import Patch
 import torch
 from acvl_utils.cropping_and_padding.padding import pad_nd_image
 from batchgenerators.dataloading.multi_threaded_augmenter import MultiThreadedAugmenter
@@ -20,7 +23,7 @@ from torch import nn
 from torch._dynamo import OptimizedModule
 from torch.nn.parallel import DistributedDataParallel
 from tqdm import tqdm
-import torch.nn.functional as F
+ 
 import nnunetv2
 from nnunetv2.configuration import default_num_processes
 from nnunetv2.inference.data_iterators import PreprocessAdapterFromNpy, preprocessing_iterator_fromfiles, \
@@ -76,7 +79,7 @@ class nnUNetPredictor(object):
                                              model_name:str,
                                              # checkpoint_name: str = 'checkpoint_best.pth',
                                              checkpoint_name: str = 'checkpoint_best.pth',
-                                             num_classes: int = 14):
+                                             num_classes: int = 105):
         """
         This is used when making predictions with a trained model
         
@@ -171,66 +174,66 @@ class nnUNetPredictor(object):
                   f'That\'s {len(not_existing_indices)} cases.')
         return list_of_lists_or_source_folder, output_filename_truncated, seg_from_prev_stage_files
 
-    # def predict_from_files(self,
-    #                        list_of_lists_or_source_folder: Union[str, List[List[str]]],
-    #                        output_folder_or_list_of_truncated_output_files: Union[str, None, List[str]],
-    #                        save_probabilities: bool = False,
-    #                        overwrite: bool = True,
-    #                        num_processes_preprocessing: int = default_num_processes,
-    #                        num_processes_segmentation_export: int = default_num_processes,
-    #                        folder_with_segs_from_prev_stage: str = None,
-    #                        num_parts: int = 1,
-    #                        part_id: int = 0):
-    #     """
-    #     This is nnU-Net's default function for making predictions. It works best for batch predictions
-    #     (predicting many images at once).
-    #     """
-    #     if isinstance(output_folder_or_list_of_truncated_output_files, str):
-    #         output_folder = output_folder_or_list_of_truncated_output_files
-    #     elif isinstance(output_folder_or_list_of_truncated_output_files, list):
-    #         output_folder = os.path.dirname(output_folder_or_list_of_truncated_output_files[0])
-    #     else:
-    #         output_folder = None
+    def predict_from_files(self,
+                           list_of_lists_or_source_folder: Union[str, List[List[str]]],
+                           output_folder_or_list_of_truncated_output_files: Union[str, None, List[str]],
+                           save_probabilities: bool = False,
+                           overwrite: bool = True,
+                           num_processes_preprocessing: int = default_num_processes,
+                           num_processes_segmentation_export: int = default_num_processes,
+                           folder_with_segs_from_prev_stage: str = None,
+                           num_parts: int = 1,
+                           part_id: int = 0):
+        """
+        This is nnU-Net's default function for making predictions. It works best for batch predictions
+        (predicting many images at once).
+        """
+        if isinstance(output_folder_or_list_of_truncated_output_files, str):
+            output_folder = output_folder_or_list_of_truncated_output_files
+        elif isinstance(output_folder_or_list_of_truncated_output_files, list):
+            output_folder = os.path.dirname(output_folder_or_list_of_truncated_output_files[0])
+        else:
+            output_folder = None
 
-    #     ########################
-    #     # let's store the input arguments so that its clear what was used to generate the prediction
-    #     if output_folder is not None:
-    #         my_init_kwargs = {}
-    #         for k in inspect.signature(self.predict_from_files).parameters.keys():
-    #             my_init_kwargs[k] = locals()[k]
-    #         my_init_kwargs = deepcopy(
-    #             my_init_kwargs)  # let's not unintentionally change anything in-place. Take this as a
-    #         recursive_fix_for_json_export(my_init_kwargs)
-    #         maybe_mkdir_p(output_folder)
-    #         save_json(my_init_kwargs, join(output_folder, 'predict_from_raw_data_args.json'))
+        ########################
+        # let's store the input arguments so that its clear what was used to generate the prediction
+        if output_folder is not None:
+            my_init_kwargs = {}
+            for k in inspect.signature(self.predict_from_files).parameters.keys():
+                my_init_kwargs[k] = locals()[k]
+            my_init_kwargs = deepcopy(
+                my_init_kwargs)  # let's not unintentionally change anything in-place. Take this as a
+            recursive_fix_for_json_export(my_init_kwargs)
+            maybe_mkdir_p(output_folder)
+            save_json(my_init_kwargs, join(output_folder, 'predict_from_raw_data_args.json'))
 
-    #         # we need these two if we want to do things with the predictions like for example apply postprocessing
-    #         save_json(self.dataset_json, join(output_folder, 'dataset.json'), sort_keys=False)
-    #         save_json(self.plans_manager.plans, join(output_folder, 'plans.json'), sort_keys=False)
-    #     #######################
+            # we need these two if we want to do things with the predictions like for example apply postprocessing
+            save_json(self.dataset_json, join(output_folder, 'dataset.json'), sort_keys=False)
+            save_json(self.plans_manager.plans, join(output_folder, 'plans.json'), sort_keys=False)
+        #######################
 
-    #     # check if we need a prediction from the previous stage
-    #     if self.configuration_manager.previous_stage_name is not None:
-    #         assert folder_with_segs_from_prev_stage is not None, \
-    #             f'The requested configuration is a cascaded network. It requires the segmentations of the previous ' \
-    #             f'stage ({self.configuration_manager.previous_stage_name}) as input. Please provide the folder where' \
-    #             f' they are located via folder_with_segs_from_prev_stage'
+        # check if we need a prediction from the previous stage
+        if self.configuration_manager.previous_stage_name is not None:
+            assert folder_with_segs_from_prev_stage is not None, \
+                f'The requested configuration is a cascaded network. It requires the segmentations of the previous ' \
+                f'stage ({self.configuration_manager.previous_stage_name}) as input. Please provide the folder where' \
+                f' they are located via folder_with_segs_from_prev_stage'
 
-    #     # sort out input and output filenames
-    #     list_of_lists_or_source_folder, output_filename_truncated, seg_from_prev_stage_files = \
-    #         self._manage_input_and_output_lists(list_of_lists_or_source_folder,
-    #                                             output_folder_or_list_of_truncated_output_files,
-    #                                             folder_with_segs_from_prev_stage, overwrite, part_id, num_parts,
-    #                                             save_probabilities)
-    #     if len(list_of_lists_or_source_folder) == 0:
-    #         return
+        # sort out input and output filenames
+        list_of_lists_or_source_folder, output_filename_truncated, seg_from_prev_stage_files = \
+            self._manage_input_and_output_lists(list_of_lists_or_source_folder,
+                                                output_folder_or_list_of_truncated_output_files,
+                                                folder_with_segs_from_prev_stage, overwrite, part_id, num_parts,
+                                                save_probabilities)
+        if len(list_of_lists_or_source_folder) == 0:
+            return
 
-    #     data_iterator = self._internal_get_data_iterator_from_lists_of_filenames(list_of_lists_or_source_folder,
-    #                                                                              seg_from_prev_stage_files,
-    #                                                                              output_filename_truncated,
-    #                                                                              num_processes_preprocessing)
+        data_iterator = self._internal_get_data_iterator_from_lists_of_filenames(list_of_lists_or_source_folder,
+                                                                                 seg_from_prev_stage_files,
+                                                                                 output_filename_truncated,
+                                                                                 num_processes_preprocessing)
 
-    #     return self.predict_from_data_iterator(data_iterator, save_probabilities, num_processes_segmentation_export)
+        return self.predict_from_data_iterator(data_iterator, save_probabilities, num_processes_segmentation_export)
 
     def _internal_get_data_iterator_from_lists_of_filenames(self,
                                                             input_list_of_lists: List[List[str]],
@@ -280,103 +283,103 @@ class nnUNetPredictor(object):
         )
         return pp
 
-    # def predict_from_list_of_npy_arrays(self,
-    #                                     image_or_list_of_images: Union[np.ndarray, List[np.ndarray]],
-    #                                     segs_from_prev_stage_or_list_of_segs_from_prev_stage: Union[None,
-    #                                                                                                 np.ndarray,
-    #                                                                                                 List[
-    #                                                                                                     np.ndarray]],
-    #                                     properties_or_list_of_properties: Union[dict, List[dict]],
-    #                                     truncated_ofname: Union[str, List[str], None],
-    #                                     num_processes: int = 3,
-    #                                     save_probabilities: bool = False,
-    #                                     num_processes_segmentation_export: int = default_num_processes):
-    #     iterator = self.get_data_iterator_from_raw_npy_data(image_or_list_of_images,
-    #                                                         segs_from_prev_stage_or_list_of_segs_from_prev_stage,
-    #                                                         properties_or_list_of_properties,
-    #                                                         truncated_ofname,
-    #                                                         num_processes)
-    #     return self.predict_from_data_iterator(iterator, save_probabilities, num_processes_segmentation_export)
+    def predict_from_list_of_npy_arrays(self,
+                                        image_or_list_of_images: Union[np.ndarray, List[np.ndarray]],
+                                        segs_from_prev_stage_or_list_of_segs_from_prev_stage: Union[None,
+                                                                                                    np.ndarray,
+                                                                                                    List[
+                                                                                                        np.ndarray]],
+                                        properties_or_list_of_properties: Union[dict, List[dict]],
+                                        truncated_ofname: Union[str, List[str], None],
+                                        num_processes: int = 3,
+                                        save_probabilities: bool = False,
+                                        num_processes_segmentation_export: int = default_num_processes):
+        iterator = self.get_data_iterator_from_raw_npy_data(image_or_list_of_images,
+                                                            segs_from_prev_stage_or_list_of_segs_from_prev_stage,
+                                                            properties_or_list_of_properties,
+                                                            truncated_ofname,
+                                                            num_processes)
+        return self.predict_from_data_iterator(iterator, save_probabilities, num_processes_segmentation_export)
 
-    # def predict_from_data_iterator(self,
-    #                                data_iterator,
-    #                                save_probabilities: bool = False,
-    #                                num_processes_segmentation_export: int = default_num_processes):
-    #     """
-    #     each element returned by data_iterator must be a dict with 'data', 'ofile' and 'data_properties' keys!
-    #     If 'ofile' is None, the result will be returned instead of written to a file
-    #     """
-    #     with multiprocessing.get_context("spawn").Pool(num_processes_segmentation_export) as export_pool:
-    #         worker_list = [i for i in export_pool._pool]
-    #         r = []
-    #         for preprocessed in data_iterator:
-    #             data = preprocessed['data']
-    #             if isinstance(data, str):
-    #                 delfile = data
-    #                 data = torch.from_numpy(np.load(data))
-    #                 os.remove(delfile)
+    def predict_from_data_iterator(self,
+                                   data_iterator,
+                                   save_probabilities: bool = False,
+                                   num_processes_segmentation_export: int = default_num_processes):
+        """
+        each element returned by data_iterator must be a dict with 'data', 'ofile' and 'data_properties' keys!
+        If 'ofile' is None, the result will be returned instead of written to a file
+        """
+        with multiprocessing.get_context("spawn").Pool(num_processes_segmentation_export) as export_pool:
+            worker_list = [i for i in export_pool._pool]
+            r = []
+            for preprocessed in data_iterator:
+                data = preprocessed['data']
+                if isinstance(data, str):
+                    delfile = data
+                    data = torch.from_numpy(np.load(data))
+                    os.remove(delfile)
 
-    #             ofile = preprocessed['ofile']
-    #             if ofile is not None:
-    #                 print(f'\nPredicting {os.path.basename(ofile)}:')
-    #             else:
-    #                 print(f'\nPredicting image of shape {data.shape}:')
+                ofile = preprocessed['ofile']
+                if ofile is not None:
+                    print(f'\nPredicting {os.path.basename(ofile)}:')
+                else:
+                    print(f'\nPredicting image of shape {data.shape}:')
 
-    #             print(f'perform_everything_on_gpu: {self.perform_everything_on_gpu}')
+                print(f'perform_everything_on_gpu: {self.perform_everything_on_gpu}')
 
-    #             properties = preprocessed['data_properties']
+                properties = preprocessed['data_properties']
 
-    #             # let's not get into a runaway situation where the GPU predicts so fast that the disk has to b swamped with
-    #             # npy files
-    #             proceed = not check_workers_alive_and_busy(export_pool, worker_list, r, allowed_num_queued=2)
-    #             while not proceed:
-    #                 # print('sleeping')
-    #                 sleep(0.1)
-    #                 proceed = not check_workers_alive_and_busy(export_pool, worker_list, r, allowed_num_queued=2)
+                # let's not get into a runaway situation where the GPU predicts so fast that the disk has to b swamped with
+                # npy files
+                proceed = not check_workers_alive_and_busy(export_pool, worker_list, r, allowed_num_queued=2)
+                while not proceed:
+                    # print('sleeping')
+                    sleep(0.1)
+                    proceed = not check_workers_alive_and_busy(export_pool, worker_list, r, allowed_num_queued=2)
 
-    #             prediction = self.predict_logits_from_preprocessed_data(data).cpu()
+                prediction = self.predict_logits_from_preprocessed_data(data).cpu()
 
-    #             if ofile is not None:
-    #                 # this needs to go into background processes
-    #                 # export_prediction_from_logits(prediction, properties, configuration_manager, plans_manager,
-    #                 #                               dataset_json, ofile, save_probabilities)
-    #                 print('sending off prediction to background worker for resampling and export')
-    #                 r.append(
-    #                     export_pool.starmap_async(
-    #                         export_prediction_from_logits,
-    #                         ((prediction, properties, self.configuration_manager, self.plans_manager,
-    #                           self.dataset_json, ofile, save_probabilities),)
-    #                     )
-    #                 )
-    #             else:
-    #                 # convert_predicted_logits_to_segmentation_with_correct_shape(prediction, plans_manager,
-    #                 #                                                             configuration_manager, label_manager,
-    #                 #                                                             properties,
-    #                 #                                                             save_probabilities)
-    #                 print('sending off prediction to background worker for resampling')
-    #                 r.append(
-    #                     export_pool.starmap_async(
-    #                         convert_predicted_logits_to_segmentation_with_correct_shape, (
-    #                             (prediction, self.plans_manager,
-    #                              self.configuration_manager, self.label_manager,
-    #                              properties,
-    #                              save_probabilities),)
-    #                     )
-    #                 )
-    #             if ofile is not None:
-    #                 print(f'done with {os.path.basename(ofile)}')
-    #             else:
-    #                 print(f'\nDone with image of shape {data.shape}:')
-    #         ret = [i.get()[0] for i in r]
+                if ofile is not None:
+                    # this needs to go into background processes
+                    # export_prediction_from_logits(prediction, properties, configuration_manager, plans_manager,
+                    #                               dataset_json, ofile, save_probabilities)
+                    print('sending off prediction to background worker for resampling and export')
+                    r.append(
+                        export_pool.starmap_async(
+                            export_prediction_from_logits,
+                            ((prediction, properties, self.configuration_manager, self.plans_manager,
+                              self.dataset_json, ofile, save_probabilities),)
+                        )
+                    )
+                else:
+                    # convert_predicted_logits_to_segmentation_with_correct_shape(prediction, plans_manager,
+                    #                                                             configuration_manager, label_manager,
+                    #                                                             properties,
+                    #                                                             save_probabilities)
+                    print('sending off prediction to background worker for resampling')
+                    r.append(
+                        export_pool.starmap_async(
+                            convert_predicted_logits_to_segmentation_with_correct_shape, (
+                                (prediction, self.plans_manager,
+                                 self.configuration_manager, self.label_manager,
+                                 properties,
+                                 save_probabilities),)
+                        )
+                    )
+                if ofile is not None:
+                    print(f'done with {os.path.basename(ofile)}')
+                else:
+                    print(f'\nDone with image of shape {data.shape}:')
+            ret = [i.get()[0] for i in r]
 
-    #     if isinstance(data_iterator, MultiThreadedAugmenter):
-    #         data_iterator._finish()
+        if isinstance(data_iterator, MultiThreadedAugmenter):
+            data_iterator._finish()
 
-    #     # clear lru cache
-    #     compute_gaussian.cache_clear()
-    #     # clear device cache
-    #     empty_cache(self.device)
-    #     return ret
+        # clear lru cache
+        compute_gaussian.cache_clear()
+        # clear device cache
+        empty_cache(self.device)
+        return ret
 
     def predict_single_npy_array(self, input_image: np.ndarray, image_properties: dict,
                                  segmentation_previous_stage: np.ndarray = None,
@@ -597,7 +600,7 @@ class nnUNetPredictor(object):
                 if self.verbose: print('running prediction')
                 for sl in tqdm(slicers, disable=not self.allow_tqdm):
                     workon = data[sl].unsqueeze(1)
-                    workon = workon.to(self.device, non_blocking=False) # 1,1,40,224,192
+                    workon = workon.to(self.device, non_blocking=False)
 
                     prediction = self._internal_maybe_mirror_and_predict(workon)[0].to(results_device)
 
@@ -616,13 +619,13 @@ if __name__ == '__main__':
     parser.add_argument('--inp', help='Input directory with test images')
     parser.add_argument('--checkpoint', help='Directory with checkpoint')
     parser.add_argument('--model', help='Model name')
-    parser.add_argument('--pth', help='pth name')
     parser.add_argument('--inp_label', help='Directory with ground truth labels')
     parser.add_argument('--num_classes', type=int, help='Number of classes in the dataset (default: 105)')
     
     args = parser.parse_args()
     
-    print("### checkpoint_path: ", args.checkpoint, args.model, args.pth)
+    print("### checkpoint_path: ", args.checkpoint)
+    print("### model_name: ", args.model)
 
     
     # predict a bunch of files
@@ -641,7 +644,7 @@ if __name__ == '__main__':
     predictor.initialize_from_trained_STUNet(
         model_training_output_dir = args.checkpoint,
         model_name = args.model,
-        checkpoint_name=args.pth,
+        checkpoint_name='checkpoint_best.pth',
         num_classes = args.num_classes
     )
 
@@ -653,88 +656,53 @@ if __name__ == '__main__':
     nsd_scores =[]
     file_path = [file for file in os.listdir(args.inp)]
     
-    # logging
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_filename = f"evaluation_{args.model}_{args.pth}.txt"
-    # log_path = join(args.checkpoint,args.model, log_filename)
-    log_path = join(args.checkpoint, args.model, log_filename)
-    
-    with open(log_path, 'w') as log_file:
-        log_file.write("=" * 80 + "\n")
-        log_file.write(f"Evaluation Results_ignore_empty_false - {args.model}\n")
-        log_file.write(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-        log_file.write(f"Total Files: {len(file_path)}\n")
-        log_file.write(f"Number of Classes: {args.num_classes}\n")
-        log_file.write("=" * 80 + "\n\n")
-        log_file.write(f"{'Index':<6}{'Filename':<30}{'Dice Score':<12}{'NSD Score':<12}\n")
-        log_file.write("-" * 80 + "\n")
-
-    print(f"📝 Logging results to: {log_path}")
-    
     # predict single file iteration
     idx=0
-    for file in file_path:
+    for file in file_path[:10]:
         img, props = SimpleITKIO().read_images([join(args.inp, file)])
         label, props = SimpleITKIO().read_images([join(args.inp_label, file.replace("_0000",""))])
         label_ = label.squeeze(0) # (112,112,128)
-        #props = {'spacing': [1.0, 1.0, 1.0]}
         seg, prob = predictor.predict_single_npy_array(img, props, None, None, True)
         
-        # to torch
-        prob = torch.from_numpy(prob).float()
-        label_ = torch.from_numpy(label_).long()
-        del img, props, label, seg
+        img_slices = img[0,img.shape[0]//2,:,:], img[0,:,img.shape[1]//2,:],img[0,:,:,img.shape[2]//2]
+        seg_slices = seg[seg.shape[0]//2,:,:],seg[:,seg.shape[1]//2,:],seg[:,:,seg.shape[2]//2]
+        label_slices = label_[label_.shape[0]//2,:,:],label_[:,label_.shape[1]//2,:],label_[:,:,label_.shape[2]//2]
         
+        axis_names = ['Axial', 'Sagittal', 'Coronal']
         
-        class_indices = torch.argmax(prob, dim=0) 
-        del prob
-        pred_one_hot = F.one_hot(class_indices, num_classes=args.num_classes) 
-        pred_one_hot = pred_one_hot.permute(-1, 0, 1, 2)  # (C, H, W, D)로 변환
-        del class_indices
+        # color mapping
+        colors = plt.cm.Set3(np.linspace(0,1,args.num_classes))
+        colors[0] = [0, 0, 0, 1]  
+        cmap = mcolors.ListedColormap(colors)
         
-        dice_score = calculate_dice_score(pred_one_hot, label_, args.num_classes)
-        nsd_score = calculate_nsd_score(pred_one_hot, label_, args.num_classes)
-        idx+=1
-        
-        del pred_one_hot
-        
-        print(idx,": dice score: ",dice_score)
-        print(idx,": nsd score: ",nsd_score)
-        
-        with open(log_path, 'a') as log_file:
-            log_file.write(f"{idx:<6}{file:<30}{dice_score:<12.4f}{nsd_score:<12.4f}\n")
-
-        dice_scores.append(dice_score)
-        nsd_scores.append(nsd_score)
-        
-        gc.collect()
-        torch.cuda.empty_cache()
-        
-        del dice_score, nsd_score
-        
-
-    avg_dice = np.mean(dice_scores)
-    avg_nsd = np.mean(nsd_scores)
-    std_dice = np.std(dice_scores)
-    std_nsd = np.std(nsd_scores)
+        for i, (img_slice, seg_slice, label_slice, axis_name) in enumerate(zip(img_slices, seg_slices, label_slices, axis_names)):
+            # 2D segmentation map 생성
+            seg_map_2d = seg_slice.astype(np.uint8)
+            label_map_2d = label_slice.astype(np.uint8)
+            
+            # 시각화
+            fig, axes = plt.subplots(1,2, figsize=(12, 10))
+            fig.suptitle(f'{axis_name} View', fontsize=16)
+            
+            
+            # Prediction
+            axes[0].imshow(img_slice, cmap='gray', alpha=0.7)
+            pred_overlay = axes[0].imshow(seg_map_2d, cmap=cmap, alpha=0.5, vmin=0, vmax=args.num_classes-1)
+            axes[0].set_title('Prediction')
+            axes[0].axis('off')
+            
+            # Ground Truth
+            axes[1].imshow(img_slice, cmap='gray', alpha=0.7)
+            gt_overlay = axes[1].imshow(label_map_2d, cmap=cmap, alpha=0.5, vmin=0, vmax=args.num_classes-1)
+            axes[1].set_title('Ground Truth')
+            axes[1].axis('off')
+            
+            output_dir = f"/mnt/HDD/yoonji/medmim/visualization/{args.model}"
+            os.makedirs(output_dir, exist_ok=True)
+            output_path = join(output_dir, f'{file}_{axis_name}_visualization.png')
+            plt.savefig(output_path, dpi=150, bbox_inches='tight')
+            plt.close()
+            
+            print(f'Saved visualization: {output_path}')
     
-    print(f"\n{args.model}")
-    print(f"\n Number of Files: {len(file_path)}")
-    print(f"\n🔥 Average Dice Score: {avg_dice:.4f}")
-    print(f"\n🔥 Average NSD Score: {avg_nsd:.4f}")
     
-    with open(log_path, 'a') as log_file:
-        log_file.write("\n" + "=" * 80 + "\n")
-        log_file.write("FINAL STATISTICS\n")
-        log_file.write("=" * 80 + "\n")
-        log_file.write(f"Model: {args.model}\n")
-        log_file.write(f"Total Files Processed: {len(file_path)}\n")
-        log_file.write(f"Average Dice Score: {avg_dice:.4f} ± {std_dice:.4f}\n")
-        log_file.write(f"Average NSD Score: {avg_nsd:.4f} ± {std_nsd:.4f}\n")
-        log_file.write(f"Best Dice Score: {max(dice_scores):.4f}\n")
-        log_file.write(f"Worst Dice Score: {min(dice_scores):.4f}\n")
-        log_file.write(f"Best NSD Score: {max(nsd_scores):.4f}\n")
-        log_file.write(f"Worst NSD Score: {min(nsd_scores):.4f}\n")
-        log_file.write(f"\nEvaluation completed at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-
-    print(f"\n✅ Results saved to: {log_path}")

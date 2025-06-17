@@ -15,9 +15,9 @@ from torch.utils.checkpoint import checkpoint
 
 class STUNetTrainer(nnUNetTrainer):
     def __init__(self, plans: dict, configuration: str, fold: int, dataset_json: dict,
-                 unpack_dataset: bool = True, result_folder:str = '', dataset_name:str = 'anatomask', device: torch.device = torch.device('cuda')):
+                 unpack_dataset: bool = True, dataset_name:str = 'anatomask', result_folder:str = '', device: torch.device = torch.device('cuda')):
 
-        super().__init__(plans, configuration, fold, dataset_json, unpack_dataset, result_folder, dataset_name, device)
+        super().__init__(plans, configuration, fold, dataset_json, unpack_dataset, dataset_name,result_folder, device)
         self.num_epochs = 1000
         self.initial_lr = 1e-4
         self.momentum = 0.9599
