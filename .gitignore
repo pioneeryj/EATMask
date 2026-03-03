@@ -1,20 +1,32 @@
 # ===========================================
-# AnatoMask .gitignore
+# EATMask .gitignore
 # ===========================================
 
 # ----- 학습 결과물 및 체크포인트 -----
 Anatomask_results/
 *.pth
 *.pt
+*.bin
 *.model
 *.ckpt
-*.pkl
+*.safetensors
 
 # ----- 데이터셋 및 라벨 -----
 data/
 labels/
 *.nii
 *.nii.gz
+*.mha
+*.mhd
+*.dcm
+
+# ----- 전처리 데이터 -----
+nnUNet_preprocessed/
+
+# ----- 바이너리 데이터 파일 -----
+*.pkl
+*.npz
+*.npy
 
 # ----- Python 캐시 -----
 __pycache__/
@@ -46,6 +58,7 @@ evaluation_results_*.txt
 
 # ----- 로그 및 출력 -----
 *.log
+*.pid
 logs/
 wandb/
 
@@ -57,3 +70,11 @@ wandb/
 # ----- OS 관련 -----
 .DS_Store
 Thumbs.db
+
+# ----- 생성된 시각화 결과 (재생성 가능) -----
+aleatoric_comparison/
+aleatoric_kendal_comparison/
+uncertainty_comparison/
+
+# ----- Claude Code 컨텍스트 -----
+.claude/

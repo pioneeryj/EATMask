@@ -1,0 +1,1 @@
+nnUNetv2_train 601 3d_fullres 0
