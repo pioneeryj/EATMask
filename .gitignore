@@ -1,0 +1,59 @@
+# ===========================================
+# AnatoMask .gitignore
+# ===========================================
+
+# ----- 학습 결과물 및 체크포인트 -----
+Anatomask_results/
+*.pth
+*.pt
+*.model
+*.ckpt
+*.pkl
+
+# ----- 데이터셋 및 라벨 -----
+data/
+labels/
+*.nii
+*.nii.gz
+
+# ----- Python 캐시 -----
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ----- 패키지/빌드 관련 -----
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+
+# ----- IDE 설정 -----
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ----- Jupyter Notebook -----
+.ipynb_checkpoints/
+
+# ----- 임시 파일 -----
+FILENAME
+files_to_add.txt
+evaluation_results_*.txt
+
+# ----- 로그 및 출력 -----
+*.log
+logs/
+wandb/
+
+# ----- 환경 설정 -----
+.env
+.envrc
+*.local
+
+# ----- OS 관련 -----
+.DS_Store
+Thumbs.db

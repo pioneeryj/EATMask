@@ -18,7 +18,7 @@ class STUNetTrainer(nnUNetTrainer):
                  unpack_dataset: bool = True, dataset_name:str = 'anatomask', result_folder:str = '', device: torch.device = torch.device('cuda')):
 
         super().__init__(plans, configuration, fold, dataset_json, unpack_dataset, dataset_name,result_folder, device)
-        self.num_epochs = 1000
+        self.num_epochs = 700
         self.initial_lr = 1e-4
         self.momentum = 0.9599
         self.device = torch.device(type='cuda', index=0)

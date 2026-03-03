@@ -1,6 +1,6 @@
 import inspect
 import sys
-sys.path.insert(0, '/home/yoonji/AnatoMask')
+sys.path.insert(0, '/home/yoonji/MedMIM-1')
 
 from nnunetv2.training.nnUNetTrainer.variants.pretrain.STUNet import STUNet
 import multiprocessing
@@ -619,15 +619,14 @@ if __name__ == '__main__':
     parser.add_argument('--inp', help='Input directory with test images')
     parser.add_argument('--checkpoint', help='Directory with checkpoint')
     parser.add_argument('--model', help='Model name')
+    parser.add_argument('--pth', help='pth name')
     parser.add_argument('--inp_label', help='Directory with ground truth labels')
     parser.add_argument('--num_classes', type=int, help='Number of classes in the dataset (default: 105)')
     
     args = parser.parse_args()
     
-    print("### checkpoint_path: ", args.checkpoint)
-    print("### model_name: ", args.model)
+    print("### checkpoint_path: ", args.checkpoint, args.model, args.pth)
 
-    
     # predict a bunch of files
     from nnunetv2.paths import nnUNet_results, nnUNet_raw
 
@@ -644,7 +643,7 @@ if __name__ == '__main__':
     predictor.initialize_from_trained_STUNet(
         model_training_output_dir = args.checkpoint,
         model_name = args.model,
-        checkpoint_name='checkpoint_best.pth',
+        checkpoint_name=args.pth,
         num_classes = args.num_classes
     )
 
@@ -656,6 +655,9 @@ if __name__ == '__main__':
     nsd_scores =[]
     file_path = [file for file in os.listdir(args.inp)]
     
+    data_path=args.inp
+    data_name = "FLARE"
+    
     # predict single file iteration
     idx=0
     for file in file_path[:10]:
@@ -663,8 +665,9 @@ if __name__ == '__main__':
         label, props = SimpleITKIO().read_images([join(args.inp_label, file.replace("_0000",""))])
         label_ = label.squeeze(0) # (112,112,128)
         seg, prob = predictor.predict_single_npy_array(img, props, None, None, True)
+        print(img.shape)
         
-        img_slices = img[0,img.shape[0]//2,:,:], img[0,:,img.shape[1]//2,:],img[0,:,:,img.shape[2]//2]
+        img_slices = img[0,img.shape[1]//2,:,:], img[0,:,img.shape[2]//2,:],img[0,:,:,img.shape[3]//2]
         seg_slices = seg[seg.shape[0]//2,:,:],seg[:,seg.shape[1]//2,:],seg[:,:,seg.shape[2]//2]
         label_slices = label_[label_.shape[0]//2,:,:],label_[:,label_.shape[1]//2,:],label_[:,:,label_.shape[2]//2]
         
@@ -697,7 +700,7 @@ if __name__ == '__main__':
             axes[1].set_title('Ground Truth')
             axes[1].axis('off')
             
-            output_dir = f"/mnt/HDD/yoonji/medmim/visualization/{args.model}"
+            output_dir = f"/mnt/HDD/yoonji/medmim/visualization/{data_name}/{args.model}"
             os.makedirs(output_dir, exist_ok=True)
             output_path = join(output_dir, f'{file}_{axis_name}_visualization.png')
             plt.savefig(output_path, dpi=150, bbox_inches='tight')
