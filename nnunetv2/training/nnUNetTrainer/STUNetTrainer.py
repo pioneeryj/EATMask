@@ -1,6 +1,7 @@
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 import torch
 from torch import nn
+import torch.nn.functional as F
 import numpy as np
 from nnunetv2.training.lr_scheduler.polylr import PolyLRScheduler
 from nnunetv2.utilities.label_handling.label_handling import convert_labelmap_to_one_hot, determine_num_input_channels
@@ -14,17 +15,18 @@ from torch.utils.checkpoint import checkpoint
 
 
 class STUNetTrainer(nnUNetTrainer):
-    def __init__(self, plans: dict, configuration: str, fold: int, dataset_json: dict,
-                 unpack_dataset: bool = True, dataset_name:str = 'anatomask', result_folder:str = '', device: torch.device = torch.device('cuda')):
+    def __init__(self, plans: dict, configuration: str, fold: int, dataset_json: dict, unpack_dataset: bool = True,
+                 device: torch.device = torch.device('cuda')):
 
-        super().__init__(plans, configuration, fold, dataset_json, unpack_dataset, dataset_name,result_folder, device)
-        self.num_epochs = 700
+        super().__init__(plans, configuration, fold, dataset_json, unpack_dataset, device)
+        self.num_epochs = 1000
         self.initial_lr = 1e-4
         self.momentum = 0.9599
         self.device = torch.device(type='cuda', index=0)
         # self.device = torch.device('cuda')
         self.weight_decay = 1e-5
 
+        # Define your models here:
 
     @staticmethod
     def build_network_architecture(plans_manager,
@@ -435,7 +437,9 @@ class STUNet(nn.Module):
 
         for u in range(len(self.conv_blocks_localization)):
             x = self.upsample_layers[u](x)
-            x = torch.cat((x, skips[-(u + 1)]), dim=1)
+            skip = skips[-(u + 1)]
+            x, skip = _pad_to_common_size(x, skip)
+            x = torch.cat((x, skip), dim=1)
             x = self.conv_blocks_localization[u](x)
             seg_outputs.append(self.final_nonlin(self.seg_outputs[u](x)))
 
@@ -482,6 +486,32 @@ class Upsample_Layer_nearest(nn.Module):
         x = nn.functional.interpolate(x, scale_factor=self.pool_op_kernel_size, mode=self.mode)
         x = self.conv(x)
         return x
+
+
+def _pad_to_common_size(a: torch.Tensor, b: torch.Tensor):
+    target_d = max(a.shape[2], b.shape[2])
+    target_h = max(a.shape[3], b.shape[3])
+    target_w = max(a.shape[4], b.shape[4])
+    return _pad_to_size(a, target_d, target_h, target_w), _pad_to_size(b, target_d, target_h, target_w)
+
+
+def _pad_to_size(t: torch.Tensor, target_d: int, target_h: int, target_w: int) -> torch.Tensor:
+    diff_d = target_d - t.shape[2]
+    diff_h = target_h - t.shape[3]
+    diff_w = target_w - t.shape[4]
+
+    if diff_d <= 0 and diff_h <= 0 and diff_w <= 0:
+        return t
+
+    pad_d_front = diff_d // 2
+    pad_d_back = diff_d - pad_d_front
+    pad_h_top = diff_h // 2
+    pad_h_bottom = diff_h - pad_h_top
+    pad_w_left = diff_w // 2
+    pad_w_right = diff_w - pad_w_left
+
+    padding = (pad_w_left, pad_w_right, pad_h_top, pad_h_bottom, pad_d_front, pad_d_back)
+    return F.pad(t, padding)
 
 
 if __name__ == '__main__':

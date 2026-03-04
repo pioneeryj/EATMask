@@ -49,6 +49,10 @@ def check_cases(image_files: List[str], label_file: str, expected_num_channels: 
     rw = readerclass()
     ret = True
 
+    # Handle the case where image_files is a string rather than a list
+    if isinstance(image_files, str):
+        image_files = [image_files]
+    
     images, properties_image = rw.read_images(image_files)
     segmentation, properties_seg = rw.read_seg(label_file)
 

@@ -4,7 +4,7 @@ from torch._dynamo import OptimizedModule
 from torch.nn.parallel import DistributedDataParallel as DDP
 from collections import OrderedDict
 import torch
-
+# torch.cuda.set_device(0)
 
 def load_stunet_pretrained_weights(network, fname, verbose=False):
 

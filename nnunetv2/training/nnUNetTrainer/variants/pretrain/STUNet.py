@@ -1,6 +1,7 @@
 import torch
 from torch import nn
-import torch.nn.functional as F
+import numpy as np
+
 
 class Decoder_forward(nn.Module):
     def __init__(self, dims, num_classes, pool_op_kernel_sizes, conv_kernel_sizes, depth):
@@ -109,6 +110,20 @@ class STUNet(nn.Module):
         for usl in range(num_pool - 1):
             self.upscale_logits_ops.append(lambda x: x)
 
+        # Store dims for feature map channels
+        self.dims = dims
+
+    def get_downsample_ratio(self):
+        """Compute total downsampling ratio from pooling operations."""
+        downsample_ratio = 1
+        for pool_size in self.pool_op_kernel_sizes:
+            downsample_ratio *= int(np.prod(pool_size))
+        return downsample_ratio
+
+    def get_feature_map_channels(self):
+        """Return list of feature map channels at each encoder level."""
+        return self.dims
+
     def forward(self, x):
         skips = []
         seg_outputs = []
@@ -121,14 +136,6 @@ class STUNet(nn.Module):
 
         for u in range(len(self.conv_blocks_localization)):
             x = self.upsample_layers[u](x)
-            
-            if x.shape[2:] != skips[-(u + 1)].shape[2:]:
-                x = F.interpolate(
-                    x, 
-                    size=skips[-(u + 1)].shape[2:],  # skip의 공간 차원에 맞춤
-                    mode='trilinear', 
-                    align_corners=False
-                )
             x = torch.cat((x, skips[-(u + 1)]), dim=1)
             x = self.conv_blocks_localization[u](x)
             seg_outputs.append(self.final_nonlin(self.seg_outputs[u](x)))

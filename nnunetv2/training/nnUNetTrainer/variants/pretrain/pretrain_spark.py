@@ -177,7 +177,7 @@ def get_validation_transforms(deep_supervision_scales: Union[List, Tuple],
 
 # endregion
 
-device = torch.device("cuda:2")
+device = torch.device("cuda:0")
 
 ### Define your model here. Refer to the example STUNet_head.py. Prepare it so that it has at least 2 attributes: get_feature_map_channels and get_downsample_ratio.
 pool_op_kernel_sizes = [[2, 2, 2], [2, 2, 2], [2, 2, 2], [2, 2, 2], [1,1,1]]
@@ -217,7 +217,7 @@ model = LocalDDP(model_without_ddp)
 
 # Chnage this every time...
 fold = 0
-epoch = 1000
+epoch = 500
 batch_size = 4
 opt = 'adamw'
 ada = 0.999
@@ -362,7 +362,7 @@ optimizer = opt_clz(params=param_groups, lr=lr, weight_decay=weight_decay)
 scheduler = LinearWarmupCosineAnnealingLR(optimizer, warmup, epoch, 1e-6)
 
 ############################## load model #############################################
-checkpoint_path = join(output_folder, model_name + '_head_latest.pt')
+checkpoint_path = join(output_folder, model_name + '_head_latest_nono.pt')
 #output_folder = '/home/yoonji/AnatoMask/Anatomask_results/MedMask/Dataset601_organs/Pretraining/' + model_name
 
 if os.path.exists(checkpoint_path):
@@ -508,6 +508,6 @@ for i in range(start_epoch,epoch):
     }
     torch.save(checkpoint, join(output_folder, model_name + '_head_latest.pt'))
 
-    if (i + 1) % 100 == 0:
+    if (i + 1) in [400, 500]:
         epoch_checkpoint_path = join(output_folder,model_name + f'_checkpoint_epoch_{i+1}.pt' )
         torch.save(checkpoint, epoch_checkpoint_path)

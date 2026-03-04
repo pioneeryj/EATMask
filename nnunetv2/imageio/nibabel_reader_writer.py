@@ -15,6 +15,7 @@
 
 from typing import Tuple, Union, List
 import numpy as np
+import os
 from nibabel import io_orientation
 
 from nnunetv2.imageio.base_reader_writer import BaseReaderWriter
@@ -40,8 +41,21 @@ class NibabelIO(BaseReaderWriter):
 
         spacings_for_nnunet = []
         for f in image_fnames:
-            nib_image = nibabel.load(f)
-            assert len(nib_image.shape) == 3, 'only 3d images are supported by NibabelIO'
+            # Validate file path before attempting to load
+            if not f or f == "/" or len(f) <= 1:
+                raise ValueError(f"Invalid image file path: '{f}'. Please check your dataset configuration.")
+            
+            # Check if file exists
+            import os
+            if not os.path.isfile(f):
+                raise FileNotFoundError(f"Image file not found: '{f}'. Please check if the file exists.")
+                
+            try:
+                nib_image = nibabel.load(f)
+            except Exception as e:
+                raise RuntimeError(f"Failed to load image '{f}'. Error: {str(e)}")
+                
+            assert len(nib_image.shape) == 3, f'only 3d images are supported by NibabelIO, got shape {nib_image.shape} for file {f}'
             original_affine = nib_image.affine
 
             original_affines.append(original_affine)
@@ -119,8 +133,21 @@ class NibabelIOWithReorient(BaseReaderWriter):
 
         spacings_for_nnunet = []
         for f in image_fnames:
-            nib_image = nibabel.load(f)
-            assert len(nib_image.shape) == 3, 'only 3d images are supported by NibabelIO'
+            # Validate file path before attempting to load
+            if not f or f == "/" or len(f) <= 1:
+                raise ValueError(f"Invalid image file path: '{f}'. Please check your dataset configuration.")
+            
+            # Check if file exists
+            import os
+            if not os.path.isfile(f):
+                raise FileNotFoundError(f"Image file not found: '{f}'. Please check if the file exists.")
+                
+            try:
+                nib_image = nibabel.load(f)
+            except Exception as e:
+                raise RuntimeError(f"Failed to load image '{f}'. Error: {str(e)}")
+                
+            assert len(nib_image.shape) == 3, f'only 3d images are supported by NibabelIO, got shape {nib_image.shape} for file {f}'
             original_affine = nib_image.affine
             reoriented_image = nib_image.as_reoriented(io_orientation(original_affine))
             reoriented_affine = reoriented_image.affine

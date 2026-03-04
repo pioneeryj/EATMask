@@ -5,8 +5,6 @@ import torch
 import torch.nn as nn
 from timm.layers import trunc_normal_
 import math
-import os
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import encoder3D
 from decoder3D import LightDecoder
 import torch.nn.functional as F
@@ -26,7 +24,7 @@ def monte_carlo(model, inp, T):
             logits = model(inp)
             logits_list.append(logits)
     return logits_list
-    
+
 def calculate_softmax(logits):
     """
     logits: Tensor of shape (B, C, H, W)
@@ -87,7 +85,7 @@ def calculate_aleatoric_uncertainty(logits_list):
 class SparK(nn.Module):
     def __init__(
             self, sparse_encoder: encoder3D.SparseEncoder, dense_decoder: LightDecoder,
-            mask_ratio=0.6, densify_norm='in', sbn=False
+            mask_ratio=0.6, densify_norm='in', sbn=False, teacher_feature_dims=[512,256,128,64,32]
     ):
         super().__init__()
         # input size = 112
@@ -105,6 +103,7 @@ class SparK(nn.Module):
         self.densify_norms = nn.ModuleList()
         self.densify_projs = nn.ModuleList()
         self.mask_tokens = nn.ParameterList()
+        self.projection_head = self.build_projection_head(teacher_feature_dims)
 
         # build the `densify` layers
         e_widths, d_width = self.sparse_encoder.enc_feat_map_chs, self.dense_decoder.width
@@ -155,8 +154,7 @@ class SparK(nn.Module):
         return torch.zeros(B, h * w * d,dtype=torch.bool, device=device).scatter_(dim=1, index=idx, value=True).view(B, 1, h, w, d)
 
 
-
-    def mask_uncertainty(self, B: int, device, uncertainty_map1:torch.Tensor, uncertainty_map2:torch.Tensor): # masking based on uncertainty
+    def mask_uncertainty(self, B: int, device, uncertainty_map1:torch.Tensor, uncertainty_map2:torch.Tensor, mask_ratio): # masking based on uncertainty
         """
         Args:
             B: Batch size
@@ -171,37 +169,65 @@ class SparK(nn.Module):
         b,c,h,w,d = aleatoric_feature_tensor.shape # out_tensor의 shape는 (4,1,7,7,8)로 예상
 
         ep_tensor_flat = epistemic_feature_tensor.view(B, -1)
-        al_tensor_flat = aleatoric_feature_tensor.view(B,-1)
+        al_tensor_flat = aleatoric_feature_tensor.view(B, -1)
 
-        topk =int(0.3*ep_tensor_flat.shape[1])
+        topk = int(0.5*ep_tensor_flat.shape[1])
         _, ep_topk_idx = torch.topk(ep_tensor_flat, k=topk, dim=1, largest = True)
         _, al_topk_idx = torch.topk(al_tensor_flat, k=topk, dim=1, largest = True)
         union_idx = torch.unique(torch.cat([ep_topk_idx, al_topk_idx], dim=1), dim=1)
+        union_idx[:int(mask_ratio*ep_tensor_flat.shape[1])]
 
         mask = torch.ones(b, h*w*d, dtype=torch.bool, device=device)
         mask.scatter_(dim=1, index=union_idx, src=torch.zeros_like(union_idx, dtype=mask.dtype))
 
         return mask.view(b,1,h,w,d)
-  
     
-    def mask_intensity(self, B:int, device, uncertainty_map:torch.Tensor, intensity=True, masking_ratio=0.6): # intensity masking based on uncertainty
+    
+    def mask_single_uncertainty(self, B: int, device, uncertainty_map:torch.Tensor, mask_ratio): # masking based on uncertainty
+        """
+        Args:
+            B: Batch size
+            uncertainty_map: (B, 1, 112,112,128)
+
+        Returns:
+            mask: Boolean mask of shape (B, 1, fmap_h, fmap_w, fmap_d).
+        """
+        uncertainty_feature_tensor = F.avg_pool3d(uncertainty_map, kernel_size=(16,16,16), stride=(16,16,16))
+
+        b,c,h,w,d = uncertainty_feature_tensor.shape # out_tensor의 shape는 (4,1,7,7,8)로 예상
+
+        tensor_flat = uncertainty_feature_tensor.view(B, -1)
+
+        topk = int(0.6*tensor_flat.shape[1])
+        _, topk_idx = torch.topk(tensor_flat, k=topk, dim=1, largest = True)
+        topk_idx[:int(mask_ratio*tensor_flat.shape[1])]
+
+        mask = torch.ones(b, h*w*d, dtype=torch.bool, device=device)
+        mask.scatter_(dim=1, index=topk_idx, src=torch.zeros_like(topk_idx, dtype=mask.dtype))
+
+        return mask.view(b,1,h,w,d)
+    
+    
+
+    
+    def mask_intensity(self, B:int, device, uncertainty_map:torch.Tensor, intensity=1, masking_ratio=0.6): # intensity masking based on uncertainty
         
         out_tensor = F.avg_pool3d(uncertainty_map, kernel_size=(16,16,16), stride=(16,16,16))
         b,c,h,w,d = out_tensor.shape # out_tensor의 shape는 (4,1,7,7,8)로 예상
 
         tensor_flat = out_tensor.view(B, -1)
-        if intensity is True:
+        if intensity == 1:
             sorted_idx = tensor_flat.argsort(dim=1, descending=True)
-            intensity = torch.linspace(0.0,1.0, steps = tensor_flat.shape[1], device=out_tensor.device)
+            intensity_val = torch.linspace(0.0,1.0, steps = tensor_flat.shape[1], device=out_tensor.device)
             intensity_values = torch.zeros_like(tensor_flat)
-            intensity_values.scatter_(dim=1, index=sorted_idx, src=intensity.unsqueeze(0).expand_as(sorted_idx))
-            intensity_values.view(b,c,h,w,d)
+            intensity_values.scatter_(dim=1, index=sorted_idx, src=intensity_val.unsqueeze(0).expand_as(sorted_idx))
+            intensity_values
             return intensity_values.view(b,c,h,w,d)
         else:
             topk = int(masking_ratio*tensor_flat.shape[1])
             _, topk_idx = torch.topk(tensor_flat, k=topk, dim=1, largest = True)
             mask = torch.ones(b, h*w*d, dtype=torch.bool, device=device)
-            mask.scatter_(dim=1, index=topk_idx, src=torch.zero_like(topk_idx, dtype=mask.dtype))
+            mask.scatter_(dim=1, index=topk_idx, src=torch.zeros_like(topk_idx, dtype=mask.dtype))
             return mask.view(b,1,h,w,d)
 
     ##### generate epistemic and aleatoric uncertainty map ####
@@ -278,15 +304,23 @@ class SparK(nn.Module):
         fea_bcffs: List[torch.Tensor] = self.sparse_encoder(masked_bchwd)
         fea_bcffs.reverse()  # after reversion: from the smallest feature map to the largest
         return fea_bcffs
-
+    
+    def build_projection_head(self, feature_shapes):
+        projection_layers = nn.ModuleList()
+        for c in feature_shapes:
+            # in_channels = 2*c
+            in_channels = c
+            out_channels = c
+            projection_layers.append(nn.Conv3d(in_channels, out_channels, kernel_size=1))
+        return projection_layers
+    
     def forward_embd_loss(self, embd1, embd2, loss_ftn):
         loss_hier = 0
         for i in len(embd1):
             loss_hier+=loss_ftn(embd1[i],embd2[i])
         embd_loss = loss_hier/len(embd1)
         return embd_loss
-
-        
+    
     def forward(self, inp_bchwd: torch.Tensor, active_b1ff=None, vis=False, return_feat = False):
         # step1. Mask
 
@@ -368,6 +402,7 @@ class SparK(nn.Module):
                     non_active.sum() + 1e-8)  # loss only on masked (non-active) patches
 
         return recon_loss, rec_loss
+
 
     def forward_learning_loss(self, loss_pred, loss_target):
         """

@@ -4,18 +4,14 @@ import torch.nn.functional as F
 import nibabel as nib
 import numpy as np
 import monai
-from monai.metrics.meandice import compute_dice, DiceMetric
-from monai.metrics.surface_dice import compute_surface_dice
-from scipy.ndimage import binary_erosion, distance_transform_edt
-from typing import List, Tuple, Union
 '''
 Assume that,,
 prediction_file: ~~.nii.gz
 groundtruth_file: ~~.nii.gz
 shape of image: (112,112,128) # H,W,D
 '''
-# pred_dir = "/home/yoonji/AnatoMask/Anatomask_results/Dataset601_Total/Pretraining/anatomask/1000epoch"
-# label_dir = "/nas_homes/yoonji/medmask/nnUNet_raw/Dataset601_organs_TotalSegmentator/labelsTs"
+pred_dir = "/home/yoonji/AnatoMask/Anatomask_results/Dataset601_Total/Pretraining/anatomask/1000epoch"
+label_dir = "/nas_homes/yoonji/medmask/nnUNet_raw/Dataset601_organs_TotalSegmentator/labelsTs"
 
 def get_file_list(dir_path):
     file_list = [f for f in os.listdir(dir_path) if os.path.isfile(os.path.join(dir_path, f))]
@@ -34,7 +30,7 @@ def center_crop(image, target_size):
     start_H = max((H - crop_H) // 2, 0)
     start_W = max((W - crop_W) // 2, 0)
     start_D = max((D - crop_D) // 2, 0)
-  
+
     # 크롭 종료 위치 계산
     end_H = min(start_H + crop_H, H)
     end_W = min(start_W + crop_W, W)
@@ -60,130 +56,38 @@ def pad_to_target_size(image, target_size):
     return F.pad(image, (pad_D[0], pad_D[1], pad_W[0], pad_W[1], pad_H[0], pad_H[1]), mode='constant', value=0)
 
 
- 
-# def calculate_dice_score(pred_onehot, lab_onehot, num_classes):
-
-#     # DiceMetric은 torch.Tensor를 입력으로 받으므로, numpy 배열을 tensor로 변환
-#     pred_tensor = torch.from_numpy(pred_onehot).unsqueeze(0).float()
-#     gt_tensor = torch.from_numpy(lab_onehot).unsqueeze(0).float()
-#     dice_class = compute_dice(pred_tensor, gt_tensor,True, False, num_classes)
-    
-#     return torch.nanmean(dice_class)
-
-def calculate_dice_score(pred_onehot, label_, num_classes):
-    '''
-    pred_onehot: C,H,W,D
-    label_: H,W,D
-    '''
-    dice_metric = DiceMetric(include_background=True, reduction="mean", ignore_empty=False)
-
-    # DiceMetric은 torch.Tensor를 입력으로 받으므로, numpy 배열을 tensor로 변환
-    pred_tensor = pred_onehot.unsqueeze(0)
-    gt_tensor = F.one_hot(label_,num_classes)
-    gt_tensor = gt_tensor.permute(-1, 0, 1, 2) 
-    gt_tensor = gt_tensor.unsqueeze(0)
-    dice_metric(pred_tensor, gt_tensor)
-    
-    dice_per_class = dice_metric.aggregate()
-    dice_metric.reset()
-    return torch.nanmean(dice_per_class)
-
-def calculate_nsd_score(pred_onehot, label_, num_classes):
-    
-    pred_tensor = pred_onehot.unsqueeze(0)
-    gt_tensor = F.one_hot(label_,num_classes)
-    gt_tensor = gt_tensor.permute(-1, 0, 1, 2) 
-    gt_tensor = gt_tensor.unsqueeze(0)
-    
-    nsd = compute_surface_dice(pred_tensor, gt_tensor,[2.0]*(num_classes-1))
-
-    return torch.nanmean(nsd)
-
-def region_or_label_to_mask(segmentation: np.ndarray, region_or_label: Union[int, Tuple[int, ...]]) -> np.ndarray:
-    """
-    주어진 segmentation에서 특정 레이블 또는 레이블 그룹에 해당하는 마스크를 생성합니다.
-    
-    Args:
-        segmentation: 분할 마스크 (h,w,d 차원)
-        region_or_label: 하나의 레이블 인덱스 또는 레이블 인덱스의 튜플
+def segment_to_onehot(predicted_tensor, num_classes):
+    predicted_long = predicted_tensor.long()    
+    onehot = F.one_hot(predicted_long, num_classes=num_classes)
+    onehot = onehot.permute(3, 0, 1, 2).float()
+    return onehot
         
-    Returns:
-        생성된 불리언 마스크
-    """
-    if np.isscalar(region_or_label):
-        return segmentation == region_or_label
-    else:
-        mask = np.zeros_like(segmentation, dtype=bool)
-        for r in region_or_label:
-            mask[segmentation == r] = True
-    return mask
-
-def get_tp_fp_fn_tn(net_output, gt, axes=None, mask=None, square=False):
-    """
-    net_output must be (b, c, x, y(, z)))
-    gt must be a label map (shape (b, 1, x, y(, z)) OR shape (b, x, y(, z))) or one hot encoding (b, c, x, y(, z))
-    if mask is provided it must have shape (b, 1, x, y(, z)))
-    :param net_output:
-    :param gt:
-    :param axes: can be (, ) = no summation
-    :param mask: mask must be 1 for valid pixels and 0 for invalid pixels
-    :param square: if True then fp, tp and fn will be squared before summation
-    :return:
-    """
-    if axes is None:
-        axes = tuple(range(2, len(net_output.size())))
-
-    shp_x = net_output.shape
-    shp_y = gt.shape
-
-    with torch.no_grad():
-        if len(shp_x) != len(shp_y):
-            gt = gt.view((shp_y[0], 1, *shp_y[1:]))
-
-        if all([i == j for i, j in zip(net_output.shape, gt.shape)]):
-            # if this is the case then gt is probably already a one hot encoding
-            y_onehot = gt
-        else:
-            gt = gt.long()
-            y_onehot = torch.zeros(shp_x, device=net_output.device)
-            y_onehot.scatter_(1, gt, 1)
-
-    tp = net_output * y_onehot
-    fp = net_output * (1 - y_onehot)
-    fn = (1 - net_output) * y_onehot
-    tn = (1 - net_output) * (1 - y_onehot)
-
-    if mask is not None:
-        with torch.no_grad():
-            mask_here = torch.tile(mask, (1, tp.shape[1], *[1 for i in range(2, len(tp.shape))]))
-        tp *= mask_here
-        fp *= mask_here
-        fn *= mask_here
-        tn *= mask_here
-        # benchmark whether tiling the mask would be faster (torch.tile). It probably is for large batch sizes
-        # OK it barely makes a difference but the implementation above is a tiny bit faster + uses less vram
-        # (using nnUNetv2_train 998 3d_fullres 0)
-        # tp = torch.stack(tuple(x_i * mask[:, 0] for x_i in torch.unbind(tp, dim=1)), dim=1)
-        # fp = torch.stack(tuple(x_i * mask[:, 0] for x_i in torch.unbind(fp, dim=1)), dim=1)
-        # fn = torch.stack(tuple(x_i * mask[:, 0] for x_i in torch.unbind(fn, dim=1)), dim=1)
-        # tn = torch.stack(tuple(x_i * mask[:, 0] for x_i in torch.unbind(tn, dim=1)), dim=1)
-
-    if square:
-        tp = tp ** 2
-        fp = fp ** 2
-        fn = fn ** 2
-        tn = tn ** 2
-
-    if len(axes) > 0:
-        tp = tp.sum(dim=axes, keepdim=False)
-        fp = fp.sum(dim=axes, keepdim=False)
-        fn = fn.sum(dim=axes, keepdim=False)
-        tn = tn.sum(dim=axes, keepdim=False)
-
-    return tp, fp, fn, tn
-
-
     
+    
+def calculate_dice_score(predicted, ground_truth, num_classes):
+    dice_metric = monai.metrics.DiceMetric(include_background=False, reduction="mean")
+    # Convert to PyTorch tensors
+    predicted_tensor = torch.from_numpy(predicted)
+    ground_truth_tensor = torch.from_numpy(ground_truth)
+
+    predict_onehot = predicted_tensor.unsqueeze(0).unsqueeze(0)
+    ground_truth = ground_truth_tensor.unsqueeze(0).unsqueeze(0)
+    # Calculate Dice score
+    dice_score = dice_metric(y_pred=predict_onehot, y=ground_truth)
+    return dice_score.item()
+
+def calculate_nsd_score(predicted, ground_truth, num_classes):
+    nsd_metric = monai.metrics.SurfaceDiceMetric(class_thresholds=[1.0], include_background=False, reduction="mean")
+    
+    predicted_tensor = torch.from_numpy(predicted)
+    ground_truth_tensor = torch.from_numpy(ground_truth)
+    
+    predicted_tensor = predicted_tensor.unsqueeze(0).unsqueeze(0)
+    ground_truth_tensor = ground_truth_tensor.unsqueeze(0).unsqueeze(0)
+    
+    nsd_score = nsd_metric(y_pred=predicted_tensor, y=ground_truth_tensor)
+    
+    return nsd_score.item()
 
 
 def evaluate_predictions(pred_dir, label_dir):
@@ -233,3 +137,5 @@ def evaluate_predictions(pred_dir, label_dir):
     return avg_dice
 
 
+if __name__== '__main__' :
+      evaluate_predictions(pred_dir, label_dir)

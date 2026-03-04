@@ -43,7 +43,7 @@ def extract_fingerprints(dataset_ids: List[int], fingerprint_extractor_class_nam
     fingerprint_extractor_class = recursive_find_python_class(join(nnunetv2.__path__[0], "experiment_planning"),
                                                               fingerprint_extractor_class_name,
                                                               current_module="nnunetv2.experiment_planning")
-    for d in dataset_ids:
+    for d in [309]:
         extract_fingerprint_dataset(d, fingerprint_extractor_class, num_processes, check_dataset_integrity, clean,
                                     verbose)
 

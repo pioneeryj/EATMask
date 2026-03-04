@@ -62,10 +62,13 @@ from torch import distributed as dist
 from torch.cuda import device_count
 from torch.cuda.amp import GradScaler
 from torch.nn.parallel import DistributedDataParallel as DDP
-
+# result + dataset path + result path
+# result_path = "medmask_0.6_1000epoch"
+# spark
+result_path = "spark_1000epoch"
 
 class nnUNetTrainer(object):
-    def __init__(self, plans: dict, configuration: str, fold: int, dataset_json: dict, unpack_dataset: bool = True, dataset_name: str='Dataset606_all_TotalSegmentator', result_folder: str='',
+    def __init__(self, plans: dict, configuration: str, fold: int, dataset_json: dict, unpack_dataset: bool = True,
                  device: torch.device = torch.device('cuda')):
         # From https://grugbrain.dev/. Worth a read ya big brains ;-)
 
@@ -119,12 +122,10 @@ class nnUNetTrainer(object):
         # inference and some of the folders may not be defined!
         self.preprocessed_dataset_folder_base = join(nnUNet_preprocessed, self.plans_manager.dataset_name) \
             if nnUNet_preprocessed is not None else None
-        self.dataset_name = dataset_name
-        self.result_folder = result_folder
-        self.output_folder_base = join(nnUNet_results, self.dataset_name, #
+        self.output_folder_base = join(nnUNet_results, self.plans_manager.dataset_name,
                                        self.__class__.__name__ + '__' + self.plans_manager.plans_name + "__" + configuration) \
             if nnUNet_results is not None else None
-        self.output_folder = join(self.output_folder_base, self.result_folder) #
+        self.output_folder = join(self.output_folder_base, result_path)
 
         self.preprocessed_dataset_folder = join(self.preprocessed_dataset_folder_base,
                                                 self.configuration_manager.data_identifier)
@@ -145,7 +146,7 @@ class nnUNetTrainer(object):
         self.oversample_foreground_percent = 0.33
         self.num_iterations_per_epoch = 250
         self.num_val_iterations_per_epoch = 50
-        self.num_epochs = 701
+        self.num_epochs = 500
         self.current_epoch = 0
 
         ### Dealing with labels/regions
@@ -616,7 +617,7 @@ class nnUNetTrainer(object):
 
         dl_tr, dl_val = self.get_plain_dataloaders(initial_patch_size, dim)
 
-        allowed_num_processes = min(get_allowed_n_proc_DA(), 4)
+        allowed_num_processes = get_allowed_n_proc_DA()
         if allowed_num_processes == 0:
             mt_gen_train = SingleThreadedAugmenter(dl_tr, tr_transforms)
             mt_gen_val = SingleThreadedAugmenter(dl_val, val_transforms)
@@ -807,7 +808,7 @@ class nnUNetTrainer(object):
         if self.unpack_dataset and self.local_rank == 0:
             self.print_to_log_file('unpacking dataset...')
             unpack_dataset(self.preprocessed_dataset_folder, unpack_segmentation=True, overwrite_existing=False,
-                           num_processes=max(1, round(get_allowed_n_proc_DA() // 4)))
+                           num_processes=max(1, round(get_allowed_n_proc_DA() // 2)))
             self.print_to_log_file('unpacking done...')
 
         if self.is_ddp:
@@ -841,8 +842,8 @@ class nnUNetTrainer(object):
         self.current_epoch += 1
 
         # now we can delete latest
-        if self.local_rank == 0 and isfile(join(self.output_folder,"checkpoint_latest.pth")):
-            os.remove(join(self.output_folder,"checkpoint_latest.pth"))
+        if self.local_rank == 0 and isfile(join(self.output_folder, "checkpoint_latest.pth")):
+            os.remove(join(self.output_folder, "checkpoint_latest.pth"))
 
         # shut down dataloaders
         old_stdout = sys.stdout
@@ -1039,14 +1040,8 @@ class nnUNetTrainer(object):
         self.print_to_log_file(
             f"Epoch time: {np.round(self.logger.my_fantastic_logging['epoch_end_timestamps'][-1] - self.logger.my_fantastic_logging['epoch_start_timestamps'][-1], decimals=2)} s")
 
-        current_epoch = self.current_epoch
-        if current_epoch + 1 in [300, 400, 500, 600, 700]:
-            self.print_to_log_file(f"Saving checkpoint at epoch {current_epoch}")
-            checkpoint_name = f"checkpoint_epoch_{current_epoch+1}.pth"
-            self.save_checkpoint(join(self.output_folder, checkpoint_name))
-        
         # handling periodic checkpointing
-        
+        current_epoch = self.current_epoch
         if (current_epoch + 1) % self.save_every == 0 and current_epoch != (self.num_epochs - 1):
             self.save_checkpoint(join(self.output_folder, 'checkpoint_latest.pth'))
 
@@ -1094,14 +1089,11 @@ class nnUNetTrainer(object):
     def load_checkpoint(self, filename_or_checkpoint: Union[dict, str]) -> None:
         if not self.was_initialized:
             self.initialize()
-        print(str(filename_or_checkpoint))
-        if isinstance(filename_or_checkpoint, str):
-            checkpoint = torch.load(filename_or_checkpoint, map_location=self.device, weights_only=False)
 
+        if isinstance(filename_or_checkpoint, str):
+            checkpoint = torch.load(filename_or_checkpoint, map_location=self.device)
         # if state dict comes from nn.DataParallel but we use non-parallel model here then the state dict keys do not
         # match. Use heuristic to make it match
-        # print(checkpoint['network_weights'])
-
         new_state_dict = {}
         for k, value in checkpoint['network_weights'].items():
             key = k
@@ -1109,12 +1101,10 @@ class nnUNetTrainer(object):
                 key = key[7:]
             new_state_dict[key] = value
 
-        self.my_init_kwargs = checkpoint['init_args'] if 'init_args' in checkpoint.keys() else {}
-        self.current_epoch = checkpoint['current_epoch'] if 'current_epoch' in checkpoint.keys() else None
-        # print(checkpoint.keys())
-        if 'logging' in checkpoint:
-            self.logger.load_checkpoint(checkpoint['logging'])
-        self._best_ema = checkpoint['_best_ema'] if '_best_ema' in checkpoint.keys() else None
+        self.my_init_kwargs = checkpoint['init_args']
+        self.current_epoch = checkpoint['current_epoch']
+        self.logger.load_checkpoint(checkpoint['logging'])
+        self._best_ema = checkpoint['_best_ema']
         self.inference_allowed_mirroring_axes = checkpoint[
             'inference_allowed_mirroring_axes'] if 'inference_allowed_mirroring_axes' in checkpoint.keys() else self.inference_allowed_mirroring_axes
 

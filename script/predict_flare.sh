@@ -1,35 +1,34 @@
+
 #!/bin/bash
 
-export nnUNet_raw='/mnt/HDD/yoonji/medmim'
+export nnUNet_raw='/nas_homes/yoonji/medmask/nnUNet_raw'
 export nnUNet_preprocessed='/nas_homes/yoonji/medmask/nnUNet_preprocessed'
-export nnUNet_results='/mnt/HDD/yoonji/medmim/nnUNet_results'
-export CUDA_VISIBLE_DEVICES=0
+export nnUNet_results='/nas_homes/yoonji/medmask/nnUNet_results'
 
-DATA_PATH="/mnt/HDD/yoonji/medmim/flare_dataset/imagesTs/sup_images"
-LABEL_PATH="/mnt/HDD/yoonji/medmim/flare_dataset/labelsTs/labels"
-CHECK_PATH="/mnt/HDD/yoonji/medmim/nnUNet_results/Dataset309_FLARE22/STUNetTrainer__nnUNetPlans__3d_fullres"
-MODEL_NAME="medmask_singleepistemic_0616"
+DATA_PATH="/nas_homes/yoonji/medmask/nnUNet_raw/Dataset219_AMOS2022_postChallenge_task2/imagesVa"
+LABEL_PATH="/nas_homes/yoonji/medmask/nnUNet_raw/Dataset219_AMOS2022_postChallenge_task2/labelsVa"
 
-PTH_NAMES=(
-    
-    "checkpoint_best.pth"
-    # "checkpoint_epoch_400.pth"
-    "checkpoint_epoch_500.pth"
-    # "checkpoint_epoch_600.pth"
-    # "checkpoint_epoch_700.pth"
+CHECK_PATH="/nas_homes/yoonji/medmask/nnUNet_results/Dataset219_AMOS2022_postChallenge_task2/STUNetTrainer__nnUNetPlans__3d_fullres"
+
+
+MODEL_NAMES=(
+    "medmask_0.6_1000epoch"
+    "medmask_0.7_1000epoch"
+    "medmask_0.8_1000epoch"
+    "spark_1000epoch"
+    "anatomask_1000epoch"
 )
 
-for PTH_NAME in "${PTH_NAMES[@]}"; do
+for MODEL_NAME in "${MODEL_NAMES[@]}"; do
     echo "Running inference for model: $MODEL_NAME"
     
-    python /home/yoonji/AnatoMask/nnunetv2/inference/predict_from_raw_data_single.py \
+    CUDA_VISIBLE_DEVICES=0 \
+    python /home/yoonji/AnatoMask/nnunetv2/inference/predict_from_raw_data_new.py \
                         --inp "$DATA_PATH" \
                         --inp_label "$LABEL_PATH" \
                         --checkpoint "$CHECK_PATH" \
                         --model "$MODEL_NAME" \
-                        --pth "$PTH_NAME" \
-                        --num_classes 14
+                        --num_classes 16
     
     echo "Completed: $MODEL_NAME"
 done
-

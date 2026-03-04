@@ -91,7 +91,19 @@ class STUNet_dropout(nn.Module):
 
         for u in range(len(self.conv_blocks_localization)):
             x = self.upsample_layers[u](x)
-            x = torch.cat((x, skips[-(u + 1)]), dim=1)
+
+            # Get skip connection
+            skip = skips[-(u + 1)]
+
+            # Resize x to match skip connection spatial dimensions if needed
+            if x.shape[2:] != skip.shape[2:]:
+                x = F.interpolate(
+                    x,
+                    size=skip.shape[2:],
+                    mode='nearest'
+                )
+
+            x = torch.cat((x, skip), dim=1)
             x = self.conv_blocks_localization[u](x)
             seg_outputs.append(self.final_nonlin(self.seg_outputs[u](x)))
 
@@ -133,14 +145,18 @@ class BasicResBlock(nn.Module):
 class Upsample_Layer_nearest(nn.Module):
     def __init__(self, input_channels, output_channels, pool_op_kernel_size, mode='nearest', dropout_ratio=0.5):
         super().__init__()
-        self.conv = nn.Conv3d(input_channels, output_channels, kernel_size=1)
-        self.pool_op_kernel_size = pool_op_kernel_size
-        self.mode = mode
+        self.upconv = nn.ConvTranspose3d(
+            input_channels,
+            output_channels,
+            kernel_size=pool_op_kernel_size,
+            stride=pool_op_kernel_size,
+            padding=0
+        )
         self.dropout = nn.Dropout3d(p=dropout_ratio)
 
     def forward(self, x):
-        x = nn.functional.interpolate(x, scale_factor=self.pool_op_kernel_size, mode=self.mode)
-        x = self.conv(x)
+        # Use ConvTranspose3d for proper upsampling with learned weights
+        x = self.upconv(x)
         x = self.dropout(x)
         return x
 

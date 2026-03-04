@@ -83,6 +83,9 @@ class DatasetFingerprintExtractor(object):
     def analyze_case(image_files: List[str], segmentation_file: str, reader_writer_class: Type[BaseReaderWriter],
                      num_samples: int = 10000):
         rw = reader_writer_class()
+        # Handle single string case - convert to list
+        if isinstance(image_files, str):
+            image_files = [image_files]
         images, properties_images = rw.read_images(image_files)
         segmentation, properties_seg = rw.read_seg(segmentation_file)
 

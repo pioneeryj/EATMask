@@ -10,18 +10,26 @@ import torch.cuda
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from batchgenerators.utilities.file_and_folder_operations import join, isfile, load_json
-
+from nnunetv2.paths import nnUNet_preprocessed
 
 from nnunetv2.run.load_pretrained_weights import load_pretrained_weights, load_stunet_pretrained_weights, load_stunet_ssl_weights, load_stunet_for_autopet, load_stunet_moco_weights, load_swin_weights, load_unimiss_weights
 from nnunetv2.training.nnUNetTrainer.nnUNetTrainer import nnUNetTrainer
 from nnunetv2.training.nnUNetTrainer.STUNetTrainer import STUNetTrainer
 from nnunetv2.utilities.dataset_name_id_conversion import maybe_convert_to_dataset_name
 from nnunetv2.utilities.find_class_by_name import recursive_find_python_class
-from nnunetv2.paths import nnUNet_preprocessed, nnUNet_results
 from torch.backends import cudnn
-# torch.cuda.set_device(0)
+torch.cuda.set_device(0)
 
-# 이어서 돌리기 체크포인트 (latest.pth)
+# 이어서 돌리기 체크포인트 (best.pth)
+## medmask ##
+# totalseg
+# checkpoint_file = "/nas_homes/yoonji/medmask/nnUNet_results/Dataset606_all_TotalSegmentator/STUNetTrainer__nnUNetPlans__3d_fullres/medmask_0.6_1000epoch/checkpoint_best.pth"
+# amos
+# checkpoint_file = "/nas_homes/yoonji/medmask/nnUNet_results/Dataset219_AMOS2022_postChallenge_task2/STUNetTrainer__nnUNetPlans__3d_fullres/medmask_0.6_1000epoch/checkpoint_best.pth"
+
+## spark ##
+checkpoint_file = "/nas_homes/yoonji/medmask/nnUNet_results/Dataset219_AMOS2022_postChallenge_task2/STUNetTrainer__nnUNetPlans__3d_fullres/spark_1000epoch/checkpoint_best.pth"
+
 
 def find_free_network_port() -> int:
     """Finds a free port on localhost.
@@ -35,19 +43,17 @@ def find_free_network_port() -> int:
     s.close()
     return port
 
+
 def get_trainer_from_args(dataset_name_or_id: Union[int, str],
                           configuration: str,
                           fold: int,
                           trainer_name: str = 'STUNetTrainer',
                           plans_identifier: str = 'nnUNetPlans',
                           use_compressed: bool = False,
-                          dataset_name: str = '',
-                          result_folder: str = 'anatomask',
                           device: torch.device = torch.device('cuda:0')):
     # load nnunet class and do sanity checks
-    # stunet_trainer = recursive_find_python_class(join(nnunetv2.__path__[0], "training", "nnUNetTrainer"),
-    #                                             trainer_name, 'nnunetv2.training.nnUNetTrainer')
-    stunet_trainer = STUNetTrainer
+    stunet_trainer = recursive_find_python_class(join(nnunetv2.__path__[0], "training", "nnUNetTrainer"),
+                                                trainer_name, 'nnunetv2.training.nnUNetTrainer')
     if stunet_trainer is None:
         raise RuntimeError(f'Could not find requested nnunet trainer {trainer_name} in '
                            f'nnunetv2.training.STUNetTrainer ('
@@ -73,38 +79,28 @@ def get_trainer_from_args(dataset_name_or_id: Union[int, str],
     plans = load_json(plans_file)
     dataset_json = load_json(join(preprocessed_dataset_folder_base, 'dataset.json'))
     stunet_trainer = stunet_trainer(plans=plans, configuration=configuration, fold=fold,
-                                   dataset_json=dataset_json, unpack_dataset=not use_compressed, 
-                                   dataset_name=dataset_name, result_folder=result_folder, device=device)
+                                    dataset_json=dataset_json, unpack_dataset=not use_compressed, device=device)
     return stunet_trainer
 
 def maybe_load_checkpoint(nnunet_trainer: STUNetTrainer, continue_training: bool, validation_only: bool,
-                          pretrained_weights_file: str = None, dataset_name:str = None, result_folder:str = None):
-    if "606" in dataset_name:
-        folder_base = "/mnt/HDD/yoonji/medmim/nnUNet_results/Dataset606_all_TotalSegmentator/STUNetTrainer__nnUNetPlans__3d_fullres"
-    elif "219" in dataset_name:
-        folder_base = "/mnt/HDD/yoonji/medmim/nnUNet_results/Dataset219_AMOS2022_postChallenge_task2/STUNetTrainer__nnUNetPlans__3d_fullres"
-    else:
-        folder_base = "/mnt/HDD/yoonji/medmim/nnUNet_results/Dataset309_FLARE22/STUNetTrainer__nnUNetPlans__3d_fullres"
+                          pretrained_weights_file: str = None):
     if continue_training and pretrained_weights_file is not None:
         raise RuntimeError('Cannot both continue a training AND load pretrained weights. Pretrained weights can only '
                            'be used at the beginning of the training.')
     if continue_training:
-        expected_checkpoint_file = join(folder_base, result_folder, 'checkpoint_epoch_200.pth')
-
-        # expected_checkpoint_file = join(nnunet_trainer.output_folder, 'no_file.pth')
+        expected_checkpoint_file = join(nnunet_trainer.output_folder, 'checkpoint_final.pth')
         if not isfile(expected_checkpoint_file):
-            expected_checkpoint_file = join(folder_base, result_folder, 'checkpoint_latest.pth')
+            expected_checkpoint_file = join(nnunet_trainer.output_folder, 'checkpoint_latest.pth')
         # special case where --c is used to run a previously aborted validation
         if not isfile(expected_checkpoint_file):
-            expected_checkpoint_file = join(folder_base, result_folder, 'checkpoint_best.pth')
-            #expected_checkpoint_file = checkpoint_file
+            # expected_checkpoint_file = join(nnunet_trainer.output_folder, 'checkpoint_best.pth')
+            expected_checkpoint_file = checkpoint_file
         if not isfile(expected_checkpoint_file):
             print(f"WARNING: Cannot continue training because there seems to be no checkpoint available to "
                                f"continue from. Starting a new training...")
             expected_checkpoint_file = None
-        print(f"expected_checkpoint_file = {expected_checkpoint_file}")
     elif validation_only:
-        expected_checkpoint_file = join(nnunet_trainer.output_folder, 'new/checkpoint_final.pth')
+        expected_checkpoint_file = join(nnunet_trainer.output_folder, 'checkpoint_final.pth')
         if not isfile(expected_checkpoint_file):
             raise RuntimeError(f"Cannot run validation because the training is not finished yet!")
     else:
@@ -162,7 +158,6 @@ def run_ddp(rank, dataset_name_or_id, configuration, fold, tr, p, use_compressed
     cleanup_ddp()
 
 
-
 def run_training(dataset_name_or_id: Union[str, int],
                  configuration: str, fold: Union[int, str],
                  trainer_class_name: str = 'STUNetTrainer',
@@ -175,8 +170,6 @@ def run_training(dataset_name_or_id: Union[str, int],
                  only_run_validation: bool = False,
                  disable_checkpointing: bool = False,
                  val_with_best: bool = True,
-                 dataset_name: str = '',
-                 result_folder: str = '',
                  device: torch.device = torch.device('cuda:0')):
     if isinstance(fold, str):
         if fold != 'all':
@@ -198,36 +191,33 @@ def run_training(dataset_name_or_id: Union[str, int],
             print(f"using port {port}")
             os.environ['MASTER_PORT'] = port  # str(port)
 
-        # mp.spawn(run_ddp,
-        #          args=(
-        #              dataset_name_or_id,
-        #              configuration,
-        #              fold,
-        #              trainer_class_name,
-        #              plans_identifier,
-        #              use_compressed_data,
-        #              disable_checkpointing,
-        #              continue_training,
-        #              only_run_validation,
-        #              pretrained_weights,
-        #              export_validation_probabilities,
-        #              val_with_best,
-        #              num_gpus,
-        #              result_folder,
-        #              model_name),
-        #          nprocs=num_gpus,
-        #          join=True)
+        mp.spawn(run_ddp,
+                 args=(
+                     dataset_name_or_id,
+                     configuration,
+                     fold,
+                     trainer_class_name,
+                     plans_identifier,
+                     use_compressed_data,
+                     disable_checkpointing,
+                     continue_training,
+                     only_run_validation,
+                     pretrained_weights,
+                     export_validation_probabilities,
+                     val_with_best,
+                     num_gpus),
+                 nprocs=num_gpus,
+                 join=True)
     else:
         nnunet_trainer = get_trainer_from_args(dataset_name_or_id, configuration, fold, trainer_class_name,
-                                               plans_identifier, use_compressed_data, dataset_name, result_folder, device=device
-                                               )
+                                               plans_identifier, use_compressed_data, device=device)
 
         if disable_checkpointing:
             nnunet_trainer.disable_checkpointing = disable_checkpointing
 
         assert not (continue_training and only_run_validation), f'Cannot set --c and --val flag at the same time. Dummy.'
 
-        maybe_load_checkpoint(nnunet_trainer, continue_training, only_run_validation, pretrained_weights, dataset_name, result_folder)
+        maybe_load_checkpoint(nnunet_trainer, continue_training, only_run_validation, pretrained_weights)
 
         if torch.cuda.is_available():
             cudnn.deterministic = False
@@ -282,8 +272,6 @@ def run_training_entry():
                     help="Use this to set the device the training should run with. Available options are 'cuda' "
                          "(GPU), 'cpu' (CPU) and 'mps' (Apple M1/M2). Do NOT use this to set which GPU ID! "
                          "Use CUDA_VISIBLE_DEVICES=X nnUNetv2_train [...] instead!")
-    parser.add_argument('--dataset_name', type=str, required=False, default='')
-    parser.add_argument('--result_folder',type=str, required=False, default='')
     args = parser.parse_args()
 
     assert args.device in ['cpu', 'cuda', 'mps'], f'-device must be either cpu, mps or cuda. Other devices are not tested/supported. Got: {args.device}.'
@@ -302,7 +290,7 @@ def run_training_entry():
 
     run_training(args.dataset_name_or_id, args.configuration, args.fold, args.tr, args.p, args.pretrained_weights,
                  args.num_gpus, args.use_compressed, args.npz, args.c, args.val, args.disable_checkpointing, args.val_best,
-                 args.dataset_name, args.result_folder, device)
+                 device=device)
 
 
 if __name__ == '__main__':

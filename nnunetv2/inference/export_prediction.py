@@ -17,7 +17,7 @@ def convert_predicted_logits_to_segmentation_with_correct_shape(predicted_logits
                                                                 configuration_manager: ConfigurationManager,
                                                                 label_manager: LabelManager,
                                                                 properties_dict: dict,
-                                                                return_probabilities: bool = True,
+                                                                return_probabilities: bool = False,
                                                                 num_threads_torch: int = default_num_processes):
     old_threads = torch.get_num_threads()
     torch.set_num_threads(num_threads_torch)
@@ -66,7 +66,7 @@ def convert_predicted_logits_to_segmentation_with_correct_shape(predicted_logits
     else:
         torch.set_num_threads(old_threads)
         return segmentation_reverted_cropping
- 
+
 
 def export_prediction_from_logits(predicted_array_or_file: Union[np.ndarray, torch.Tensor], properties_dict: dict,
                                   configuration_manager: ConfigurationManager,
@@ -85,7 +85,7 @@ def export_prediction_from_logits(predicted_array_or_file: Union[np.ndarray, tor
         dataset_json_dict_or_file = load_json(dataset_json_dict_or_file)
 
     label_manager = plans_manager.get_label_manager(dataset_json_dict_or_file)
-    ret, pred_prob = convert_predicted_logits_to_segmentation_with_correct_shape(
+    ret = convert_predicted_logits_to_segmentation_with_correct_shape(
         predicted_array_or_file, plans_manager, configuration_manager, label_manager, properties_dict,
         return_probabilities=save_probabilities
     )

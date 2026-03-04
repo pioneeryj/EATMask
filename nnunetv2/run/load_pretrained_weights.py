@@ -16,7 +16,7 @@ def load_pretrained_weights(network, fname, verbose=False):
     nnUNetTrainer.save_checkpoint takes care of that!
 
     """
-    saved_model = torch.load(fname)
+    saved_model = torch.load(fname, weights_only=False)
     pretrained_dict = saved_model['network_weights']
 
     skip_strings_in_pretrained = [
@@ -66,7 +66,7 @@ def load_pretrained_weights(network, fname, verbose=False):
 
 def load_stunet_ssl_weights(network, fname, verbose=False):
 
-    saved_model = torch.load(fname, map_location="cuda:0")
+    saved_model = torch.load(fname, map_location="cuda:0", weights_only=False)
 
     if fname.endswith('pt'):
         pretrained_dict = saved_model['network_weights']
@@ -109,7 +109,7 @@ def load_stunet_ssl_weights(network, fname, verbose=False):
 
 def load_stunet_moco_weights(network, fname, verbose=False):
 
-    saved_model = torch.load(fname)
+    saved_model = torch.load(fname, weights_only=False)
 
     if fname.endswith('pt'):
         pretrained_dict = saved_model['network_weights']
@@ -154,7 +154,7 @@ def load_stunet_moco_weights(network, fname, verbose=False):
 
 def load_stunet_pretrained_weights(network, fname, verbose=False):
 
-    saved_model = torch.load(fname, map_location=torch.device('cpu'))
+    saved_model = torch.load(fname, map_location=torch.device('cpu'), weights_only=False)
 
     if fname.endswith('pth') or fname.endswith('pt'):
         pretrained_dict = saved_model['network_weights']
@@ -210,7 +210,7 @@ def load_stunet_pretrained_weights(network, fname, verbose=False):
 
 
 def load_stunet_for_autopet(network, fname, verbose=False):
-    saved_model = torch.load(fname, map_location=torch.device('cpu'))
+    saved_model = torch.load(fname, map_location=torch.device('cpu'), weights_only=False)
 
     if fname.endswith('pth') or fname.endswith('pt'):
         pretrained_dict = saved_model['network_weights']
@@ -259,7 +259,7 @@ def load_swin_weights(network, fname, verbose=False):
     nnUNetTrainer.save_checkpoint takes care of that!
 
     """
-    saved_model = torch.load(fname)
+    saved_model = torch.load(fname, weights_only=False)
     pretrained_dict = saved_model['network_weights']
 
     skip_strings_in_pretrained = [
@@ -319,7 +319,7 @@ def load_unimiss_weights(network, fname, verbose=False):
     nnUNetTrainer.save_checkpoint takes care of that!
 
     """
-    saved_model = torch.load(fname)
+    saved_model = torch.load(fname, weights_only=False)
     pretrained_dict = saved_model['network_weights']
 
     skip_strings_in_pretrained = ['cls_conv.weight', 'cls_conv.bias']
